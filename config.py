@@ -3,11 +3,11 @@ import torch
 
 n_emb = 60
 T = 32 # context size
-vocab_size = 256
-n_layers = 3
-n_heads = 2
+vocab_size = 512
+n_layers = 6
+n_heads = 6
 n_ffd_hidden = 4 * n_emb
-dropout = 0.2
+dropout = 0.3
 device = torch.device(
     "cuda" if torch.cuda.is_available()
     else "mps" if torch.backends.mps.is_available()

@@ -21,6 +21,6 @@ def token_per_word(text: str, tokenizer: rt.RegexTokenizer) -> float:
 
 
 # train_tpw = token_per_word(text_tok_training, tok)
-# full_tpw = token_per_word(text, tok)
+full_tpw = token_per_word(text, tok)
 # print(f"Tokens/word on training slice: {train_tpw:.3f}")
-# print(f"Tokens/word on full corpus:   {full_tpw:.3f}")
+print(f"Tokens/word on full corpus:   {full_tpw:.3f}")
