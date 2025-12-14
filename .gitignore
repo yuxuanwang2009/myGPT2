@@ -1,4 +1,10 @@
 __pycache__/
-Dataset/
-Dataset/
+*.py[cod]
+.DS_Store
+.venv/
+venv/
 checkpoint.pt
+Dataset
+*.pt
+generated.txt
+loss_plot.png
