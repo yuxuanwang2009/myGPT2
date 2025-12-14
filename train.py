@@ -42,7 +42,7 @@ def Train(m, train_loader, val_loader, optimizer, eval_interval, minimal_lr, dev
     step = 0
     lr = optimizer.param_groups[0]['lr']
     epoch_idx = 0
-    while len(loss_curve_val) < 2 or loss_curve_val[-1] / loss_curve_val[-indices_back] < 0.996 and lr > minimal_lr:
+    while len(loss_curve_val) < 2 or loss_curve_val[-1] / loss_curve_val[-indices_back] < 0.998 and lr > minimal_lr:
         # --- start timing this epoch ---
         maybe_sync() # only on CUDA
         t0 = time.time()

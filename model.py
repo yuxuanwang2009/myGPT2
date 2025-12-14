@@ -5,6 +5,7 @@ import torch.nn as nn
 # from config import n_emb, device, n_ffd_hidden
 import torch.nn.functional as F
 import math
+from config import label_smoothing
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, n_emb, n_heads, dropout): 
@@ -127,7 +128,7 @@ class GPTLanguageModel(nn.Module):
             logits = logits.view(B*T, C)
             targets = targets.view(B*T) # targets has a shape of (B, T)
             # Add label smoothing to not preach on sparse samples
-            loss = F.cross_entropy(logits, targets, label_smoothing=0)
+            loss = F.cross_entropy(logits, targets, label_smoothing=label_smoothing)
         return logits, loss
     
     def generate(self, idx, max_new_tokens, beta=1.0):
