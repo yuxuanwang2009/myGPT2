@@ -11,6 +11,7 @@
 
 # Run this file to generate a histogram of text length. 
 
+import os
 import torch
 from torch.utils.data import Dataset, DataLoader
 from config import split, epoch_steps, device
@@ -19,12 +20,17 @@ import matplotlib.pyplot as plt
 import tiktoken, regex_tokenizer as rt
 
 
+CSV_SOURCE = os.environ.get("CSV_SOURCE")
+if not CSV_SOURCE:
+    raise ValueError("Set CSV_SOURCE to the path/URL of the CSV file.")
+
+
 def csv_to_string(csv_path: str, text_col: str = "headline_text"):
     with open(csv_path, encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         return "\n".join(row[text_col] for row in reader if row.get(text_col))
     
-text = csv_to_string("Dataset/examiner-date-text-shuffled.csv")
+text = csv_to_string(CSV_SOURCE)
 
 tok = rt.RegexTokenizer.load("tokenizer.json")
 data = torch.tensor(tok.encode(text), dtype=torch.long)
