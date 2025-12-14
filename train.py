@@ -5,6 +5,7 @@ from IPython.display import clear_output
 import numpy as np
 import matplotlib.pyplot as plt
 import time
+from config import lrReductionRatio
 
 def unique_params(model):
     seen, uniq = set(), []
@@ -41,7 +42,7 @@ def Train(m, train_loader, val_loader, optimizer, eval_interval, minimal_lr, dev
     step = 0
     lr = optimizer.param_groups[0]['lr']
     epoch_idx = 0
-    while len(loss_curve_val) < 2 or loss_curve_val[-1] / loss_curve_val[-indices_back] < 0.998 and lr > minimal_lr:
+    while len(loss_curve_val) < 2 or loss_curve_val[-1] / loss_curve_val[-indices_back] < 0.996 and lr > minimal_lr:
         # --- start timing this epoch ---
         maybe_sync() # only on CUDA
         t0 = time.time()
@@ -96,8 +97,8 @@ def Train(m, train_loader, val_loader, optimizer, eval_interval, minimal_lr, dev
             # Adjust the learning rate
             indices_back = int(len(loss_curve_val) * 0.2) + 2
             print(f"Loss have reduced by {(1 - loss_curve_val[-1] / loss_curve_val[-indices_back]) * 100:.4g}% over the past 20% of the total training time.", flush=True)
-            if loss_curve_val[-1] / loss_curve_val[-indices_back] > 0.996:
-                lr /= 1.5
+            if loss_curve_val[-1] / loss_curve_val[-indices_back] > 0.99:
+                lr /= lrReductionRatio
                 for g in optimizer.param_groups:
                     g['lr'] = lr
                 print(f"Reducing learning rate to {lr:.4g}.\n", flush=True)

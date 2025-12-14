@@ -1,39 +1,26 @@
-import io
 import os
 import csv
-from urllib.parse import urlparse
-from urllib.request import urlopen
-
 from config import vocab_size
 import matplotlib.pyplot as plt
 import regex_tokenizer as rt
 
-DEFAULT_CSV_URL = "https://drive.google.com/drive/folders/1qiZULwjOETORmWU_eG_L6h5cDHqv38KL?usp=share_link"
-CSV_SOURCE = os.environ.get("CSV_SOURCE") or (
-    os.path.join(os.environ["CSV_DIR"], "examiner-date-text-shuffled.csv") if "CSV_DIR" in os.environ else None
-)
-if not CSV_SOURCE:
-    CSV_SOURCE = DEFAULT_CSV_URL
+text = open("Dataset/tinyshakespeare.txt", "r", encoding="utf-8").read()
+text_tok_training = text
+
+tok = rt.RegexTokenizer.train(text_tok_training, vocab_size, path="tokenizer.json", verbose=True)
+
+# tok = rt.RegexTokenizer.load("tokenizer.json")
+
+def token_per_word(text: str, tokenizer: rt.RegexTokenizer) -> float:
+    """Compute average tokens per whitespace-delimited word for a text sample."""
+    word_count = len(text.split())
+    if word_count == 0:
+        return 0.0
+    token_count = len(tokenizer.encode(text))
+    return token_count / word_count
 
 
-def _open_csv_source(csv_source: str):
-    parsed = urlparse(csv_source)
-    if parsed.scheme in {"http", "https"}:
-        with urlopen(csv_source) as resp:
-            content = resp.read().decode("utf-8")
-        return io.StringIO(content)
-    return open(csv_source, "r", encoding="utf-8", newline="")
-
-
-def csv_to_string(csv_path: str, text_col: str = "headline_text"):
-    with _open_csv_source(csv_path) as f:
-        reader = csv.DictReader(f)
-        return "\n".join(row[text_col] for row in reader if row.get(text_col))
-    
-# text = csv_to_string(CSV_SOURCE)
-# text_tok_training = text[:int(len(text)/20)] 
-
-# tok = rt.RegexTokenizer.train(text_tok_training, vocab_size, path="tokenizer.json", verbose=True)
-
-tok = rt.RegexTokenizer.load("tokenizer.json")
-print(tok.encode("\n")[0])
+# train_tpw = token_per_word(text_tok_training, tok)
+# full_tpw = token_per_word(text, tok)
+# print(f"Tokens/word on training slice: {train_tpw:.3f}")
+# print(f"Tokens/word on full corpus:   {full_tpw:.3f}")

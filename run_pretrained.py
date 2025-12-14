@@ -1,8 +1,8 @@
 # run_pretrained.py
 import argparse
 import torch
-from config import device, n_emb, n_heads, n_layers, T, dropout, n_ffd_hidden
-from data_utils import vocab_size, ttos, stot
+from config import device, n_emb, n_heads, n_layers, T, dropout, n_ffd_hidden, vocab_size
+from data_utils import ttos, stot
 from model import GPTLanguageModel
 
 # Utility functions

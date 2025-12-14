@@ -3,7 +3,7 @@ import torch
 from config import *
 from model import GPTLanguageModel
 from train import Train, unique_params
-from data_utils import jokes, Construct_data_loaders, vocab_size
+from data_utils import Construct_data_loaders
 from run_pretrained import load_pretrained
 import os
 import logging
@@ -12,7 +12,7 @@ import logging
 # Normalize device type for branching
 device_type = device if isinstance(device, str) else device.type
 
-# 🔇 silence Inductor autotune logs (junk code?)
+# Silence Inductor autotune logs
 os.environ["TORCHINDUCTOR_VERBOSE"] = "0"
 logging.getLogger("torch._inductor").setLevel(logging.CRITICAL)
 
@@ -54,7 +54,8 @@ def main():
     print(f"\nThe model has {sum(p.numel() for p in model.parameters())/1e6}M parameters.\n", flush=True)
 
     # 3. Build dataloaders
-    train_loader, val_loader = Construct_data_loaders(jokes, T, batch_size=batch_size)
+    from import_data import data
+    train_loader, val_loader = Construct_data_loaders(data, T, batch_size=batch_size)
 
     # 4. Train and save weights
     Train(model, train_loader, val_loader, optimizer, eval_interval, minimal_lr=1e-6, device=device)
