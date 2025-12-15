@@ -15,7 +15,6 @@ def load_pretrained(checkpoint_path: str = "checkpoint.pt", training = False) ->
         n_layers=n_layers,
         T=T,
         dropout=dropout,
-        device = device
     ).to(device)
     ckpt = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(ckpt["model"])
@@ -64,7 +63,7 @@ def main():
 
         with open("generated.txt", "w") as f:
             f.write(words_gen_string)
-        print("\nSaved to generated.txt.")
+        print("Saved to generated.txt.")
         
         if not args.prompt:
             break

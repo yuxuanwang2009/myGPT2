@@ -40,7 +40,6 @@ def main():
             n_layers=n_layers,
             T=T,
             dropout=dropout,
-            device = device
         ).to(device)
         # Compile (CUDA only); drop max-autotune to avoid Triton benchmark spam
         if torch.cuda.is_available() and device_type == "cuda":
@@ -51,7 +50,6 @@ def main():
     # 2. Optionally resume from checkpoint
     else:
         model, optimizer = load_pretrained("checkpoint.pt", training=True)
-    print(f"\nThe model has {sum(p.numel() for p in model.parameters())/1e6}M parameters.\n", flush=True)
 
     # 3. Build dataloaders
     from import_data import data

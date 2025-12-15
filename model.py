@@ -5,7 +5,7 @@ import torch.nn as nn
 # from config import n_emb, device, n_ffd_hidden
 import torch.nn.functional as F
 import math
-from config import label_smoothing
+import config
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, n_emb, n_heads, dropout): 
@@ -16,9 +16,9 @@ class MultiHeadAttention(nn.Module):
         self.head_size= n_emb // n_heads
         self.dropout_p = dropout
 
-        self.qkv = nn.Linear(n_emb, 3 * n_emb, bias=False)
+        self.qkv = nn.Linear(n_emb, 3 * n_emb, bias=config.bias)
         # self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
-        self.mix = nn.Linear(n_emb, n_emb, bias=False)
+        self.c_proj = nn.Linear(n_emb, n_emb, bias=config.bias)
 
     def forward(self, x):
         #grab sizes
@@ -40,7 +40,7 @@ class MultiHeadAttention(nn.Module):
 
         #reshape to (B, T, C) and mix it up
         out = out.transpose(1, 2).contiguous().view(B, T, C)
-        out = self.mix(out)
+        out = self.c_proj(out)
         
         #dropout will be added at the transformer block level
         return out
@@ -49,25 +49,27 @@ class FeedForward(nn.Module):
     def __init__(self, n_emb, n_ffd_hidden):
         super().__init__()
         self.ffd = nn.Sequential(
-            nn.Linear(n_emb, n_ffd_hidden),
-            nn.GELU(),
-            nn.Linear(n_ffd_hidden, n_emb),
+            nn.Linear(n_emb, n_ffd_hidden, bias=config.bias),
+            nn.GELU()
         )
+        self.c_proj = nn.Linear(n_ffd_hidden, n_emb, bias=config.bias)
+
 
     def forward(self, x):
         out = self.ffd(x)
+        out = self.c_proj(out)
         return out
 
 class TransformerBlock(nn.Module):
     def __init__(self, n_emb, n_heads, n_ffd_hidden, dropout):
         super().__init__()
         self.atten = nn.Sequential(
-            nn.LayerNorm(n_emb),
+            nn.LayerNorm(n_emb, bias=config.bias),
             MultiHeadAttention(n_emb, n_heads, dropout),
             nn.Dropout(dropout)
         )
         self.ffd = nn.Sequential(
-            nn.LayerNorm(n_emb),
+            nn.LayerNorm(n_emb, bias=config.bias),
             FeedForward(n_emb, n_ffd_hidden),
             nn.Dropout(dropout)
         )
@@ -87,13 +89,13 @@ class GPTLanguageModel(nn.Module):
             n_layers,
             T,
             dropout,
-            device,
-            weight_tying = False):
+            weight_tying = config.weight_tying):
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size, n_emb)
         self.T = T
         self.position_embedding_table = nn.Embedding(T, n_emb)
         self.register_buffer("position_ids", torch.arange(T).unsqueeze(0))  # shape [1, T]
+        self.dropout = nn.Dropout(dropout) #TODO convert to config.dropout and no need to keep dropout as argument
         self.blocks = nn.Sequential(*[TransformerBlock(n_emb, n_heads, n_ffd_hidden, dropout) for _ in range(n_layers)])
         self.ln_final = nn.LayerNorm(n_emb)
         self.lm_head = nn.Linear(n_emb, vocab_size, bias=False)
@@ -102,7 +104,15 @@ class GPTLanguageModel(nn.Module):
         if weight_tying:
             # Weight tying: embedding and disembedding should follow the same matrix. Need to turn off bias!
             self.lm_head.weight = self.token_embedding_table.weight
-            nn.init.normal_(self.token_embedding_table.weight, 0.0, 1.0 / math.sqrt(n_emb))
+            # Not initialized differently in GPT-2
+            # nn.init.normal_(self.token_embedding_table.weight, 0.0, 1.0 / math.sqrt(n_emb))
+        # GPT-2 initialization of the final linear layers before residual connection. avoids variance to cumulate.
+        for pn, p in self.named_parameters():
+            if pn.endswith('c_proj.weight'):
+                torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * n_layers))
+        
+        print(f"\nThe model has {sum(p.numel() for p in self.parameters())/1e6}M parameters.\n", flush=True)
+
 
     def _init_weights(self, module): 
         if isinstance(module, nn.Linear):
@@ -117,6 +127,7 @@ class GPTLanguageModel(nn.Module):
         tok_emb = self.token_embedding_table(idx)
         pos_emb = self.position_embedding_table(self.position_ids[:, :T])  # slice up to T
         x = tok_emb + pos_emb # note broadcasting, size is (B, T, C)
+        x = self.dropout(x)
         x = self.blocks(x) # (B, T, C)
         x = self.ln_final(x) # (B, T, C)
         logits = self.lm_head(x) # (B, T, vocab_size)
@@ -128,7 +139,7 @@ class GPTLanguageModel(nn.Module):
             logits = logits.view(B*T, C)
             targets = targets.view(B*T) # targets has a shape of (B, T)
             # Add label smoothing to not preach on sparse samples
-            loss = F.cross_entropy(logits, targets, label_smoothing=label_smoothing)
+            loss = F.cross_entropy(logits, targets, label_smoothing=config.label_smoothing)
         return logits, loss
     
     def generate(self, idx, max_new_tokens, beta=1.0):
