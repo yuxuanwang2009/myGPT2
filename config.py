@@ -1,13 +1,13 @@
 # Hyperparameters
 import torch
 
-n_emb = 240
+n_emb = 120
 T = 64 # context size
 vocab_size = 512
 n_layers = 6
-n_heads = 8
+n_heads = 6
 n_ffd_hidden = 4 * n_emb
-dropout = 0.3
+dropout = 0.35
 device = torch.device(
     "cuda" if torch.cuda.is_available()
     else "mps" if torch.backends.mps.is_available()
@@ -22,7 +22,7 @@ batch_size = 16
 assert epoch_steps % batch_size == 0
 assert epoch_steps % (eval_interval * batch_size) == 0 
 
-label_smoothing = 0.05
+label_smoothing = 0
 
 if __name__ == "__main__":
     print(f"\nComputation on {device}.")

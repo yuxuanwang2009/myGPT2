@@ -64,8 +64,7 @@ def main():
 
         with open("generated.txt", "w") as f:
             f.write(words_gen_string)
-        print("\nHere's your headline:", ''.join(words_gen_string.splitlines()[:2]))
-        print("\nMore generated headlines written to generated.txt.")
+        print("\nSaved to generated.txt.")
         
         if not args.prompt:
             break
