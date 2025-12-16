@@ -5,7 +5,7 @@ from IPython.display import clear_output
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-from config import lrReductionRatio
+import config
 
 def unique_params(model):
     seen, uniq = set(), []
@@ -98,7 +98,7 @@ def Train(m, train_loader, val_loader, optimizer, eval_interval, minimal_lr, dev
             indices_back = int(len(loss_curve_val) * 0.2) + 2
             print(f"Loss have reduced by {(1 - loss_curve_val[-1] / loss_curve_val[-indices_back]) * 100:.4g}% over the past 20% of the total training time.", flush=True)
             if loss_curve_val[-1] / loss_curve_val[-indices_back] > 0.99:
-                lr /= lrReductionRatio
+                lr /= config.lrReductionRatio
                 for g in optimizer.param_groups:
                     g['lr'] = lr
                 print(f"Reducing learning rate to {lr:.4g}.\n", flush=True)

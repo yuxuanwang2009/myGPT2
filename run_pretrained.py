@@ -1,22 +1,22 @@
 # run_pretrained.py
 import argparse
 import torch
-from config import device, n_emb, n_heads, n_layers, T, dropout, n_ffd_hidden, vocab_size
+import config
 from data_utils import ttos, stot
 from model import GPTLanguageModel
 
 # Utility functions
 def load_pretrained(checkpoint_path: str = "checkpoint.pt", training = False) -> GPTLanguageModel:
     model = GPTLanguageModel(
-        vocab_size=vocab_size,
-        n_emb=n_emb,
-        n_heads=n_heads,
-        n_ffd_hidden = n_ffd_hidden,
-        n_layers=n_layers,
-        T=T,
-        dropout=dropout,
-    ).to(device)
-    ckpt = torch.load(checkpoint_path, map_location=device)
+        vocab_size=config.vocab_size,
+        n_emb=config.n_emb,
+        n_heads=config.n_heads,
+        n_ffd_hidden = config.n_ffd_hidden,
+        n_layers=config.n_layers,
+        T=config.T,
+        dropout=config.dropout,
+    ).to(config.device)
+    ckpt = torch.load(checkpoint_path, map_location=config.device)
     model.load_state_dict(ckpt["model"])
     if training == True:
         optimizer = torch.optim.AdamW(model.parameters(), 0)
@@ -58,7 +58,7 @@ def main():
         else:
             prompt = stot("<|endoftext|>").view(1, -1)
 
-        prompt = prompt.to(device)
+        prompt = prompt.to(config.device)
         words_gen_string = generate_words(prompt, model, max_new_tokens=3000, beta=1.5)
 
         with open("generated.txt", "w") as f:

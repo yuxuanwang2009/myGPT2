@@ -1,13 +1,11 @@
-import os
-import csv
-from config import vocab_size
+import config
 import matplotlib.pyplot as plt
 import regex_tokenizer as rt
 
 text = open("Dataset/tinyshakespeare.txt", "r", encoding="utf-8").read()
 text_tok_training = text
 
-tok = rt.RegexTokenizer.train(text_tok_training, vocab_size, path="tokenizer.json", verbose=True)
+tok = rt.RegexTokenizer.train(text_tok_training, config.vocab_size, path="tokenizer.json", verbose=True)
 
 # tok = rt.RegexTokenizer.load("tokenizer.json")
 

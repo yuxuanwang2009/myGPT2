@@ -1,20 +1,6 @@
-# Data prep functions for GPT-style training on variable-length names
-# Strategy: concatenate all names into a single token stream, separated by
-# '\n'. GPT can learn to ignore attention from a previous work. 
-# Then sample fixed-length windows that always *start* at a name boundary.
-# Windows are padded with '\n' so every sample is exactly block_size long. 
-# As time complexity of an attention head is O(T^2), we don't want the
-# context window to be too large, in our case, no bigger than word length. 
-# This name boundary alignment is a good practice when window length is 
-# comparable to word length: the model does not waste time on learning
-# how to complete a half word. 
-
-# Run this file to generate a histogram of text length. 
-
-import csv
 import torch
 from torch.utils.data import Dataset, DataLoader
-from config import split, epoch_steps, device
+import config
 import matplotlib.pyplot as plt
 import regex_tokenizer as rt
 
@@ -52,7 +38,7 @@ class BlockPairDataset(Dataset):
         # For boundary-free corpora, step through the stream with stride T when deterministic
         if self.random:
             self.starts = None
-            self.N = epoch_steps
+            self.N = config.epoch_steps
         else:
             max_start = max(len(self.data) - (self.T + 1), 0)
             self.starts = torch.arange(0, max_start + 1, self.T)
@@ -89,10 +75,11 @@ class BlockPairDataset(Dataset):
 def Construct_data_loaders(data:torch.Tensor, T, batch_size) -> DataLoader:
     # Train/val split into two tensors
     len_ = data.numel()
-    len_tr = int(len_ * split)
+    len_tr = int(len_ * config.split)
     len_val = len_ - len_tr
     data_tr, data_val = data.split([len_tr, len_val])
 
+    device = config.device
     device_type = device if isinstance(device, str) else device.type
     cuda = torch.cuda.is_available() and device_type == "cuda"
 
@@ -136,15 +123,3 @@ def Construct_data_loaders(data:torch.Tensor, T, batch_size) -> DataLoader:
     print(f"Training data (one epoch) consist of {len(ds_tr)} batched blocks of text.", flush=True)
     print(f"Validation data consist of {len(ds_va)} batched blocks of text.\n", flush=True)
     return train_loader, val_loader
-
-# def main():
-#     plt.hist(joke_len, bins=30, edgecolor='black')
-#     plt.xlabel("Joke length (in tokens)")
-#     plt.ylabel("Frequency")
-#     plt.title("Histogram of Joke Lengths")
-#     plt.show()
-#     print(f"There are {len(joke_len)} data in total.")
-#     print(f"There are {vocab_size} distinct tokens.")
-    
-# if __name__ == "__main__":
-#     main()
