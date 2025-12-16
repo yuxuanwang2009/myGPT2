@@ -153,3 +153,93 @@ class GPTLanguageModel(nn.Module):
             idx_next = torch.multinomial(F.softmax(logits * beta, dim=-1), num_samples=1)
             idx = torch.cat([idx, idx_next], dim=1)
         return idx
+
+
+    @classmethod
+    def load_gpt2_from_hf(
+        cls,
+        *,
+        hf_model_name: str = "gpt2",
+        local_files_only: bool = False,
+    ):
+        """Load HuggingFace GPT-2 weights into a new GPTLanguageModel.
+
+        Notes
+        -----
+        - Hyperparameters (vocab_size, n_emb, etc.) are extracted from the HF model config.
+        - HuggingFace GPT-2 uses Conv1D modules whose saved weight matrices are
+          transposed relative to nn.Linear; this method handles that.
+        - Requires the `transformers` package at runtime.
+        """
+        from transformers import GPT2LMHeadModel
+
+        hf = GPT2LMHeadModel.from_pretrained(hf_model_name, local_files_only=local_files_only)
+        hf_config = hf.config
+
+        # Extract hyperparameters from HF config
+        vocab_size = hf_config.vocab_size
+        n_emb = hf_config.n_embd
+        n_heads = hf_config.n_head
+        n_ffd_hidden = 4 * n_emb  # Standard for GPT-2
+        n_layers = hf_config.n_layer
+        T = hf_config.n_positions
+        dropout = 0.0  # Not in HF config, set to 0 for inference
+
+        model = cls(vocab_size, n_emb, n_heads, n_ffd_hidden, n_layers, T, dropout)
+
+        hf_sd = hf.state_dict()
+        ours_sd = model.state_dict()
+
+        def _copy(dst_key: str, src_key: str, *, transpose: bool = False) -> None:
+            src = hf_sd[src_key]
+            if transpose:
+                src = src.t()
+            dst = ours_sd[dst_key]
+            src = src.to(device=dst.device, dtype=dst.dtype)
+            dst.copy_(src)
+
+        with torch.no_grad():
+            _copy("token_embedding_table.weight", "transformer.wte.weight")
+            _copy("position_embedding_table.weight", "transformer.wpe.weight")
+            _copy("ln_final.weight", "transformer.ln_f.weight")
+            _copy("ln_final.bias", "transformer.ln_f.bias")
+
+            for i in range(len(model.blocks)):
+                _copy(f"blocks.{i}.atten.0.weight", f"transformer.h.{i}.ln_1.weight")
+                _copy(f"blocks.{i}.atten.0.bias", f"transformer.h.{i}.ln_1.bias")
+
+                _copy(
+                    f"blocks.{i}.atten.1.qkv.weight",
+                    f"transformer.h.{i}.attn.c_attn.weight",
+                    transpose=True,
+                )
+                _copy(f"blocks.{i}.atten.1.qkv.bias", f"transformer.h.{i}.attn.c_attn.bias")
+
+                _copy(
+                    f"blocks.{i}.atten.1.c_proj.weight",
+                    f"transformer.h.{i}.attn.c_proj.weight",
+                    transpose=True,
+                )
+                _copy(f"blocks.{i}.atten.1.c_proj.bias", f"transformer.h.{i}.attn.c_proj.bias")
+
+                _copy(f"blocks.{i}.ffd.0.weight", f"transformer.h.{i}.ln_2.weight")
+                _copy(f"blocks.{i}.ffd.0.bias", f"transformer.h.{i}.ln_2.bias")
+
+                _copy(
+                    f"blocks.{i}.ffd.1.ffd.0.weight",
+                    f"transformer.h.{i}.mlp.c_fc.weight",
+                    transpose=True,
+                )
+                _copy(f"blocks.{i}.ffd.1.ffd.0.bias", f"transformer.h.{i}.mlp.c_fc.bias")
+
+                _copy(
+                    f"blocks.{i}.ffd.1.c_proj.weight",
+                    f"transformer.h.{i}.mlp.c_proj.weight",
+                    transpose=True,
+                )
+                _copy(f"blocks.{i}.ffd.1.c_proj.bias", f"transformer.h.{i}.mlp.c_proj.bias")
+
+            if model.lm_head.weight.data_ptr() != model.token_embedding_table.weight.data_ptr():
+                _copy("lm_head.weight", "lm_head.weight")
+
+        return model
