@@ -1,4 +1,4 @@
-
+from __future__ import annotations
 # (Rerun) Building blocks of nanoGPT
 import torch
 import torch.nn as nn
@@ -80,24 +80,25 @@ class TransformerBlock(nn.Module):
         return out
     
 class GPTLanguageModel(nn.Module):
-    def __init__(
-            self,
-            vocab_size,
-            n_emb,
-            n_heads,
-            n_ffd_hidden,
-            n_layers,
-            T,
-            dropout,
-            weight_tying = config.weight_tying):
+    def __init__(self, cfg: config.Config = config.cfg):
         super().__init__()
+        # Single entry point: pass a Config object (default: config.cfg)
+        vocab_size = cfg.vocab_size
+        n_emb = cfg.n_emb
+        n_heads = cfg.n_heads
+        n_ffd_hidden = cfg.n_ffd_hidden
+        n_layers = cfg.n_layers
+        T = cfg.T
+        dropout = cfg.dropout
+        weight_tying = cfg.weight_tying
+
         self.token_embedding_table = nn.Embedding(vocab_size, n_emb)
         self.T = T
         self.position_embedding_table = nn.Embedding(T, n_emb)
-        self.register_buffer("position_ids", torch.arange(T).unsqueeze(0))  # shape [1, T]
-        self.dropout = nn.Dropout(dropout) #TODO convert to config.dropout and no need to keep dropout as argument
+        self.register_buffer("position_ids", torch.arange(T))  # shape [1, T]
+        self.dropout = nn.Dropout(dropout)
         self.blocks = nn.Sequential(*[TransformerBlock(n_emb, n_heads, n_ffd_hidden, dropout) for _ in range(n_layers)])
-        self.ln_final = nn.LayerNorm(n_emb)
+        self.ln_final = nn.LayerNorm(n_emb, bias=config.bias)
         self.lm_head = nn.Linear(n_emb, vocab_size, bias=False)
     
         self.apply(self._init_weights)
@@ -125,7 +126,7 @@ class GPTLanguageModel(nn.Module):
     def forward(self, idx, targets = None):
         B, T = idx.shape
         tok_emb = self.token_embedding_table(idx)
-        pos_emb = self.position_embedding_table(self.position_ids[:, :T])  # slice up to T
+        pos_emb = self.position_embedding_table(self.position_ids[:T])  # slice up to T
         x = tok_emb + pos_emb # note broadcasting, size is (B, T, C)
         x = self.dropout(x)
         x = self.blocks(x) # (B, T, C)
@@ -150,10 +151,13 @@ class GPTLanguageModel(nn.Module):
             logits, loss = self.forward(idx_cond)
             # logits are for every single token, for inference we only need the last one
             logits = logits[:, -1, :]
-            idx_next = torch.multinomial(F.softmax(logits * beta, dim=-1), num_samples=1)
+            probs = F.softmax(logits * beta, dim=-1)
+            # use top-k logits (probs) to screen out junk tokens
+            top50_probs, top50_indices = torch.topk(probs, 50, dim = -1) 
+            top50_index = torch.multinomial(top50_probs, num_samples=1)
+            idx_next = torch.gather(top50_indices, -1, top50_index)
             idx = torch.cat([idx, idx_next], dim=1)
         return idx
-
 
     @classmethod
     def load_gpt2_from_hf(
@@ -171,6 +175,10 @@ class GPTLanguageModel(nn.Module):
           transposed relative to nn.Linear; this method handles that.
         - Requires the `transformers` package at runtime.
         """
+        if not config.bias:
+            print("Setting config.bias = True, as in GPT2.")
+            config.bias = True
+
         from transformers import GPT2LMHeadModel
 
         hf = GPT2LMHeadModel.from_pretrained(hf_model_name, local_files_only=local_files_only)
@@ -180,12 +188,22 @@ class GPTLanguageModel(nn.Module):
         vocab_size = hf_config.vocab_size
         n_emb = hf_config.n_embd
         n_heads = hf_config.n_head
-        n_ffd_hidden = 4 * n_emb  # Standard for GPT-2
         n_layers = hf_config.n_layer
         T = hf_config.n_positions
         dropout = 0.0  # Not in HF config, set to 0 for inference
 
-        model = cls(vocab_size, n_emb, n_heads, n_ffd_hidden, n_layers, T, dropout)
+        # Build a config derived from the HF model
+        hf_cfg = config.Config(
+            vocab_size=vocab_size,
+            n_emb=n_emb,
+            n_heads=n_heads,
+            n_layers=n_layers,
+            T=T,
+            dropout=dropout,
+            weight_tying=True,
+        )
+
+        model = cls(cfg=hf_cfg)
 
         hf_sd = hf.state_dict()
         ours_sd = model.state_dict()

@@ -16,12 +16,8 @@ def _default_device() -> torch.device:
 
 
 @dataclass
-class Config:
-    """Training/model configuration. Can construct other presets
-
-    This file keeps backwards compatibility with older code that does
-    `from config import *` by exporting module-level variables derived from
-    a single `cfg` instance.
+class GPT2Config:
+    """Training/model configuration. Can construct other presets.
     """
 
     # model
@@ -48,6 +44,9 @@ class Config:
     lr: float = 1e-4
     lrReductionRatio: float = 2.0
 
+    # tokenizer
+    use_tiktoken: bool = True
+
     def __post_init__(self) -> None:
         self.n_ffd_hidden = 4 * self.n_emb
 
@@ -55,7 +54,7 @@ class Config:
         assert self.epoch_steps % (self.eval_interval * self.batch_size) == 0
 
 
-cfg = Config()
+cfg = GPT2Config()
 
 # Backwards-compatible module-level exports
 n_emb = cfg.n_emb
@@ -77,6 +76,8 @@ batch_size = cfg.batch_size
 
 lr = cfg.lr
 lrReductionRatio = cfg.lrReductionRatio
+
+use_tiktoken = cfg.use_tiktoken
 
 __all__ = [
     "Config",
@@ -101,6 +102,8 @@ __all__ = [
     # optimizer
     "lr",
     "lrReductionRatio",
+    # tokenizer
+    "use_tiktoken"
 ]
 
 

@@ -32,15 +32,7 @@ def main():
 
     # 1. Construct the model
     if not args.resume:
-        model = GPTLanguageModel(
-            vocab_size=config.vocab_size,
-            n_emb=config.n_emb,
-            n_heads=config.n_heads,
-            n_ffd_hidden = config.n_ffd_hidden,
-            n_layers=config.n_layers,
-            T=config.T,
-            dropout=config.dropout,
-        ).to(config.device)
+        model = GPTLanguageModel(cfg=config.cfg).to(config.device)
         # Compile (CUDA only); drop max-autotune to avoid Triton benchmark spam
         if torch.cuda.is_available() and device_type == "cuda":
             model = torch.compile(model)

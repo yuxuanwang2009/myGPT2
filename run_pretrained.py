@@ -7,15 +7,7 @@ from model import GPTLanguageModel
 
 # Utility functions
 def load_pretrained(checkpoint_path: str = "checkpoint.pt", training = False) -> GPTLanguageModel:
-    model = GPTLanguageModel(
-        vocab_size=config.vocab_size,
-        n_emb=config.n_emb,
-        n_heads=config.n_heads,
-        n_ffd_hidden = config.n_ffd_hidden,
-        n_layers=config.n_layers,
-        T=config.T,
-        dropout=config.dropout,
-    ).to(config.device)
+    model = GPTLanguageModel(cfg=config.cfg).to(config.device)
     ckpt = torch.load(checkpoint_path, map_location=config.device)
     model.load_state_dict(ckpt["model"])
     if training == True:
@@ -47,23 +39,29 @@ def main():
     )
     args = parser.parse_args()
 
-    model = load_pretrained("checkpoint.pt")
+    # model = load_pretrained("checkpoint.pt")
+    # model = GPTLanguageModel(cfg=config.cfg).to(config.device)
+    model = GPTLanguageModel.load_gpt2_from_hf().to(config.device) # for testing imported GPT-2, temporary
+    
 
     while True:
         if args.prompt:
-            user_prompt = input("\nEnter your prompt (or '<q>' to quit): ")
+            user_prompt = input("Enter your prompt (or '<q>' to quit): ")
             if user_prompt == "<q>":
                 break
-            prompt = stot("<|endoftext|>" + user_prompt).view(1, -1)
+            prompt = stot(user_prompt).view(1, -1)
         else:
-            prompt = stot("<|endoftext|>").view(1, -1)
+            prompt = stot("I am an AI helper,").view(1, -1)
 
         prompt = prompt.to(config.device)
-        words_gen_string = generate_words(prompt, model, max_new_tokens=3000, beta=1.5)
+        # torch.manual_seed(42)
+        # torch.mps.manual_seed(42)
+        words_gen_string = generate_words(prompt, model, max_new_tokens=20, beta=1)
 
+        print(words_gen_string)
         with open("generated.txt", "w") as f:
             f.write(words_gen_string)
-        print("Saved to generated.txt.")
+        print("\nSaved to generated.txt.")
         
         if not args.prompt:
             break

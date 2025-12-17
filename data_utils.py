@@ -1,22 +1,24 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 import config
-import matplotlib.pyplot as plt
 import regex_tokenizer as rt
+import tiktoken
+
+if config.use_tiktoken == True:
+    tok = tiktoken.get_encoding("gpt2")
+else:
+    tok = rt.RegexTokenizer.load("tokenizer.json")
 
 
-tok = rt.RegexTokenizer.load("tokenizer.json")
-
-# tokenizer encoding: from a string to a tensor of tokens, wrapped with my compactifaction scheme
+# tokenizer encoding: from a string to a tensor of tokens
 def stot(s: str) -> torch.Tensor:
-    ids = tok.encode(s)
+    ids = tok.encode(s, allowed_special={"<|endoftext|>"})
     return torch.tensor(ids, dtype=torch.long)
 
-# tokenizer encoding: from a tensor of tokens to a strong, wrapped with my compactification scheme
+# tokenizer encoding: from a tensor of tokens to a string
 def ttos(t: torch.Tensor, for_output: bool = False) -> str:
     out = tok.decode(t.tolist())
     return out.replace("<|endoftext|>", "\n") if for_output else out
-
 
 # a pair of tensors as chunks of text offset by one
 class BlockPairDataset(Dataset):
