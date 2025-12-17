@@ -9,7 +9,7 @@ tok = rt.RegexTokenizer.train(text_tok_training, config.vocab_size, path="tokeni
 
 # tok = rt.RegexTokenizer.load("tokenizer.json")
 
-def token_per_word(text: str, tokenizer: rt.RegexTokenizer) -> float:
+def _token_per_word(text: str, tokenizer: rt.RegexTokenizer) -> float:
     """Compute average tokens per whitespace-delimited word for a text sample."""
     word_count = len(text.split())
     if word_count == 0:
@@ -18,7 +18,7 @@ def token_per_word(text: str, tokenizer: rt.RegexTokenizer) -> float:
     return token_count / word_count
 
 
-# train_tpw = token_per_word(text_tok_training, tok)
-full_tpw = token_per_word(text, tok)
+# train_tpw = _token_per_word(text_tok_training, tok)
+full_tpw = _token_per_word(text, tok)
 # print(f"Tokens/word on training slice: {train_tpw:.3f}")
 print(f"Tokens/word on full corpus:   {full_tpw:.3f}")

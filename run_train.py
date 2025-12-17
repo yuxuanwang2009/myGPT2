@@ -2,15 +2,14 @@ import argparse
 import torch
 import config
 from model import GPTLanguageModel
-from train import Train, unique_params
+from train import Train
 from data_utils import Construct_data_loaders
 from run_pretrained import load_pretrained
 import os
 import logging
 
 
-# Normalize device type for branching
-device_type = config.device if isinstance(config.device, str) else config.device.type
+device_type = config.device 
 
 # Silence Inductor autotune logs
 os.environ["TORCHINDUCTOR_VERBOSE"] = "0"
@@ -37,7 +36,11 @@ def main():
         if torch.cuda.is_available() and device_type == "cuda":
             model = torch.compile(model)
 
-        optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=config.lr,
+            weight_decay=config.weight_decay
+        )
     
     # 2. Optionally resume from checkpoint
     else:

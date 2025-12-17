@@ -50,7 +50,7 @@ class FeedForward(nn.Module):
         super().__init__()
         self.ffd = nn.Sequential(
             nn.Linear(n_emb, n_ffd_hidden, bias=config.bias),
-            nn.GELU()
+            nn.GELU(approximate="tanh")  # GPT-2 uses gelu_new (tanh approximation)
         )
         self.c_proj = nn.Linear(n_ffd_hidden, n_emb, bias=config.bias)
 

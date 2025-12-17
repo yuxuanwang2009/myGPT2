@@ -53,6 +53,73 @@ class Config:
 
         assert self.epoch_steps % self.batch_size == 0
         assert self.epoch_steps % (self.eval_interval * self.batch_size) == 0
+    
+    @classmethod
+    def small(cls) -> "Config":
+        return cls(
+            n_emb=240,
+            n_layers=6,
+            n_heads=8,
+            T=64,
+            vocab_size=512,
+            dropout=0.3,
+            batch_size=16,
+            bias=False,
+            use_tiktoken=False,
+            weight_decay=0.01,
+            weight_tying=True
+        )
 
+cfg = Config().small()
 
-cfg = Config()
+# Backwards-compatible module-level exports, DO NOT DELETE
+n_emb = cfg.n_emb
+T = cfg.T
+vocab_size = cfg.vocab_size
+n_layers = cfg.n_layers
+n_heads = cfg.n_heads
+n_ffd_hidden = cfg.n_ffd_hidden
+bias = cfg.bias
+dropout = cfg.dropout
+label_smoothing = cfg.label_smoothing
+weight_tying = cfg.weight_tying
+device = cfg.device
+
+split = cfg.split
+epoch_steps = cfg.epoch_steps
+eval_interval = cfg.eval_interval
+batch_size = cfg.batch_size
+
+lr = cfg.lr
+lrReductionRatio = cfg.lrReductionRatio
+weight_decay = cfg.weight_decay
+
+use_tiktoken = cfg.use_tiktoken
+
+__all__ = [
+    "Config",
+    "cfg",
+    # model
+    "n_emb",
+    "T",
+    "vocab_size",
+    "n_layers",
+    "n_heads",
+    "n_ffd_hidden",
+    "bias",
+    "dropout",
+    "label_smoothing",
+    "weight_tying",
+    "device",
+    # data
+    "split",
+    "epoch_steps",
+    "eval_interval",
+    "batch_size",
+    # optimizer
+    "lr",
+    "lrReductionRatio",
+    "weight_decay",
+    # tokenizer
+    "use_tiktoken"
+]
