@@ -16,7 +16,7 @@ def _default_device() -> torch.device:
 
 
 @dataclass
-class GPT2Config:
+class Config:
     """Training/model configuration. Can construct other presets.
     """
 
@@ -43,6 +43,7 @@ class GPT2Config:
     # optimizer
     lr: float = 1e-4
     lrReductionRatio: float = 2.0
+    weight_decay: float = 1e-6  # GPT-2 value
 
     # tokenizer
     use_tiktoken: bool = True
@@ -54,58 +55,4 @@ class GPT2Config:
         assert self.epoch_steps % (self.eval_interval * self.batch_size) == 0
 
 
-cfg = GPT2Config()
-
-# Backwards-compatible module-level exports
-n_emb = cfg.n_emb
-T = cfg.T
-vocab_size = cfg.vocab_size
-n_layers = cfg.n_layers
-n_heads = cfg.n_heads
-n_ffd_hidden = cfg.n_ffd_hidden
-bias = cfg.bias
-dropout = cfg.dropout
-label_smoothing = cfg.label_smoothing
-weight_tying = cfg.weight_tying
-device = cfg.device
-
-split = cfg.split
-epoch_steps = cfg.epoch_steps
-eval_interval = cfg.eval_interval
-batch_size = cfg.batch_size
-
-lr = cfg.lr
-lrReductionRatio = cfg.lrReductionRatio
-
-use_tiktoken = cfg.use_tiktoken
-
-__all__ = [
-    "Config",
-    "cfg",
-    # model
-    "n_emb",
-    "T",
-    "vocab_size",
-    "n_layers",
-    "n_heads",
-    "n_ffd_hidden",
-    "bias",
-    "dropout",
-    "label_smoothing",
-    "weight_tying",
-    "device",
-    # data
-    "split",
-    "epoch_steps",
-    "eval_interval",
-    "batch_size",
-    # optimizer
-    "lr",
-    "lrReductionRatio",
-    # tokenizer
-    "use_tiktoken"
-]
-
-
-if __name__ == "__main__":
-    print(f"\nComputation on {device}.")
+cfg = Config()

@@ -137,10 +137,12 @@ class GPTLanguageModel(nn.Module):
             loss = None
         else:
             B, T, C = logits.shape
+            # Flatten logits and targets to (B*T, C) and (B*T,) respectively
             logits = logits.view(B*T, C)
             targets = targets.view(B*T) # targets has a shape of (B, T)
             # Add label smoothing to not preach on sparse samples
             loss = F.cross_entropy(logits, targets, label_smoothing=config.label_smoothing)
+            # alternatively, loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
         return logits, loss
     
     def generate(self, idx, max_new_tokens, beta=1.0):
