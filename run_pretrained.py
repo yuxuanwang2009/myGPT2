@@ -8,7 +8,7 @@ from model import GPTLanguageModel
 # Utility functions
 def load_pretrained(checkpoint_path: str = "checkpoint.pt", training = False) -> GPTLanguageModel:
     model = GPTLanguageModel(cfg=config.cfg).to(config.device)
-    ckpt = torch.load(checkpoint_path, map_location=config.device)
+    ckpt = torch.load(checkpoint_path, map_location=config.device)    
     model.load_state_dict(ckpt["model"])
     if training == True:
         optimizer = torch.optim.AdamW(model.parameters(), 0)
@@ -39,9 +39,9 @@ def main():
     )
     args = parser.parse_args()
 
-    # model = load_pretrained("checkpoint.pt")
+    model = load_pretrained("checkpoint.pt")
     # model = GPTLanguageModel(cfg=config.cfg).to(config.device)
-    model = GPTLanguageModel.load_gpt2_from_hf().to(config.device) # for testing imported GPT-2, temporary
+    # model = GPTLanguageModel.load_gpt2_from_hf().to(config.device) # for testing imported GPT-2, temporary
     
 
     while True:
@@ -56,7 +56,7 @@ def main():
         prompt = prompt.to(config.device)
         # torch.manual_seed(42)
         # torch.mps.manual_seed(42)
-        words_gen_string = generate_words(prompt, model, max_new_tokens=20, beta=1)
+        words_gen_string = generate_words(prompt, model, max_new_tokens=200, beta=1)
 
         print(words_gen_string)
         with open("generated.txt", "w") as f:

@@ -1,22 +1,13 @@
 # Training loop
 import torch
 import contextlib
-from IPython.display import clear_output
 import numpy as np
 import matplotlib.pyplot as plt
 import time
 import config
+from torch.utils.data import DataLoader
 
-def unique_params(model):
-    seen, uniq = set(), []
-    for p in model.parameters():
-        pid = id(p)
-        if pid not in seen:
-            seen.add(pid)
-            uniq.append(p)
-    return uniq
-
-def Train(m, train_loader, val_loader, optimizer, eval_interval, minimal_lr, device):
+def Train(m, train_loader: DataLoader, val_loader: DataLoader, optimizer, eval_interval, minimal_lr, device):
     m.train()
     for p in m.parameters():
         p.requires_grad = True 
@@ -40,7 +31,7 @@ def Train(m, train_loader, val_loader, optimizer, eval_interval, minimal_lr, dev
     indices_back = 1
     fig, ax = plt.subplots()
     step = 0
-    lr = optimizer.param_groups[0]['lr']
+    lr = optimizer.param_groups[0]['lr'] 
     epoch_idx = 0
     while len(loss_curve_val) < 2 or loss_curve_val[-1] / loss_curve_val[-indices_back] < 0.998 and lr > minimal_lr:
         # --- start timing this epoch ---
@@ -48,29 +39,33 @@ def Train(m, train_loader, val_loader, optimizer, eval_interval, minimal_lr, dev
         t0 = time.time()
 
         lossi = []
-        # Steps in an epoch
-        for step, (X, Y) in enumerate(train_loader, start=step+1):
+        normi = []
+        # Steps in an epoch, start = step+1 to continue counting steps across epochs.
+        for step, (X, Y) in enumerate(train_loader, start=step+1): 
             X, Y = X.to(device, non_blocking=True), Y.to(device, non_blocking=True)
             with autocast_ctx():
-                logits, loss = m(X, targets=Y)
+                _, loss = m(X, targets=Y)
             optimizer.zero_grad(set_to_none=True)  # clear old gradients efficiently
             loss.backward()
+            if config.grad_clipping > 0.0: # gradient norm clipping
+                normi = torch.nn.utils.clip_grad_norm_(m.parameters(), config.grad_clipping)  
             optimizer.step()                       # optimizer update
             
             lossi.append(loss.item())
             if step % eval_interval == 0:
                 loss_curve_tr.append(torch.tensor(lossi).mean().item()) 
-
+                if config.grad_clipping > 0.0:
+                    norm = normi.mean().item()
                 m.eval()
                 with torch.no_grad():
-                    lossi = []
+                    lossi_val = []
                     for idx_block, (X_val, Y_val) in enumerate(val_loader):
                         X_val, Y_val = X_val.to(device, non_blocking=True), Y_val.to(device, non_blocking=True)    
                         with autocast_ctx():
-                            logits, loss = m(X_val, targets=Y_val)  
-                        lossi.append(loss.item())
-                loss_val = (sum(lossi) / (idx_block + 1))#.item()
-                lossi = []
+                            _, loss = m(X_val, targets=Y_val)  
+                        lossi_val.append(loss.item())
+                loss_val = (sum(lossi_val) / (idx_block + 1))#.item()
+                lossi_val = []
                 m.train()
                 loss_curve_val.append(loss_val) 
 
@@ -80,7 +75,10 @@ def Train(m, train_loader, val_loader, optimizer, eval_interval, minimal_lr, dev
         print(f"\nEpoch {epoch_idx}: {dt:.2f}s ({dt/60:.2f}min)", flush=True)
         epoch_idx += 1
 
-        print(f"Trained on {step} batches in total. Loss is {loss_val:.5g}.", flush=True)
+        if config.grad_clipping:
+            print(f"Trained on {step} batches in total. Norm is {norm:.5g}. Loss is {loss_val:.5g}.", flush=True)
+        else:
+            print(f"Trained on {step} batches in total. Loss is {loss_val:.5g}.", flush=True)   
 
         if len(loss_curve_tr) > 1:
             # Build the plot

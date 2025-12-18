@@ -1,4 +1,5 @@
 import argparse
+import inspect
 import torch
 import config
 from model import GPTLanguageModel
@@ -36,10 +37,24 @@ def main():
         if torch.cuda.is_available() and device_type == "cuda":
             model = torch.compile(model)
 
+        decay, no_decay = [], []
+        for name, param in model.named_parameters():
+            if not param.requires_grad: 
+                continue
+            if param.ndim == 1 or name.endswith(".bias") or "ln_" in name:
+                no_decay.append(param)
+            else:
+                decay.append(param)
+        fused_available = "fused" in inspect.signature(torch.optim.AdamW).parameters
+        use_fused = fused_available and device_type == "cuda"
+
         optimizer = torch.optim.AdamW(
-            model.parameters(),
+            [
+                {"params": decay, "weight_decay": config.weight_decay},
+                {"params": no_decay, "weight_decay": 0.0},
+            ],
             lr=config.lr,
-            weight_decay=config.weight_decay
+            fused=use_fused,
         )
     
     # 2. Optionally resume from checkpoint

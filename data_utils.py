@@ -74,6 +74,12 @@ class BlockPairDataset(Dataset):
         return x, y
 
 # constructing DataLoaders for train and val data
+# Input: data - full text as a tensor of token IDs
+# BlockPairDataset - Dataset whose items are (x,y) pairs of token ID tensors with context length T
+# DataLoader - loads BlockPairDataset into batches for training
+# Output: train_loader, val_loader which are DataLoader objects
+# In Andrej's implementation, DataLoaderLite takes reads the .txt file and 
+# return x, y pairs using a next_batch method -- much simpler.
 def Construct_data_loaders(data:torch.Tensor, T, batch_size) -> DataLoader:
     # Train/val split into two tensors
     len_ = data.numel()
@@ -86,7 +92,7 @@ def Construct_data_loaders(data:torch.Tensor, T, batch_size) -> DataLoader:
     cuda = torch.cuda.is_available() and device_type == "cuda"
 
     # Convert torch.Tensor to Dataset of proper context blocks
-    ds_tr = BlockPairDataset(data_tr, T, random = True) 
+    ds_tr = BlockPairDataset(data_tr, T, random = True) # Dataset objects 
     ds_va = BlockPairDataset(data_val, T, random = False)
 
     # Convert the Datasets to Dataloaders with backend-specific settings

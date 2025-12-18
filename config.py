@@ -43,7 +43,8 @@ class Config:
     # optimizer
     lr: float = 1e-4
     lrReductionRatio: float = 2.0
-    weight_decay: float = 1e-6  # GPT-2 value
+    weight_decay: float = 0.1  # GPT-2 value
+    grad_clipping: float = 1.0  # gradient norm clipping
 
     # tokenizer
     use_tiktoken: bool = True
@@ -60,14 +61,17 @@ class Config:
             n_emb=240,
             n_layers=6,
             n_heads=8,
-            T=64,
+            T=128,
             vocab_size=512,
             dropout=0.3,
-            batch_size=16,
+            batch_size=64,
             bias=False,
             use_tiktoken=False,
+            epoch_steps=6400, # total number of tokens ~ 300k in tinyshakespeare.txt, context length 64
+            eval_interval=100,
             weight_decay=0.01,
-            weight_tying=True
+            weight_tying=False,
+            grad_clipping=2.0
         )
 
 cfg = Config().small()
@@ -93,6 +97,7 @@ batch_size = cfg.batch_size
 lr = cfg.lr
 lrReductionRatio = cfg.lrReductionRatio
 weight_decay = cfg.weight_decay
+grad_clipping = cfg.grad_clipping
 
 use_tiktoken = cfg.use_tiktoken
 

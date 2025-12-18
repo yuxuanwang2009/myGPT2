@@ -1,1 +1,17 @@
-python compare_hf_outputs.py --hf-model gpt2 --prompt "Hello" `( 'Hello.txt' , true ) | json | sed -e '([ *|
+<q. My garden chequeks based capt,
+One that look'd in my meaning way to holder.
+When he draws of such swords will hear me sword it.
+
+KING HENRY VI:
+I will, mine own approagion, late.
+
+ROMEO:
+Hold you my depart may stay fly, for he best avoor
+To tell him; let me give me on for your bled gar.
+
+ROMEO:
+'Tis times, is this goodly wife.
+
+KING RICHARD III:
+Spake, I intend my looks.
+Marry: I be raven,

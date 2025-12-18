@@ -1,5 +1,4 @@
 import config
-import matplotlib.pyplot as plt
 import regex_tokenizer as rt
 
 text = open("Dataset/tinyshakespeare.txt", "r", encoding="utf-8").read()
