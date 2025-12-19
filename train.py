@@ -40,26 +40,19 @@ def Train(m, train_loader: DataLoader, val_loader: DataLoader, optimizer, eval_i
 
         lossi = []
         normi = []
-
-        accum_steps = config.macro_batch_size // config.batch_size # gradient accumulation to simulate larger batch sizes
-        optimizer.zero_grad(set_to_none=True)  # clear old gradients efficiently
-
         # Steps in an epoch, start = step+1 to continue counting steps across epochs.
         for step, (X, Y) in enumerate(train_loader, start=step+1): 
             X, Y = X.to(device, non_blocking=True), Y.to(device, non_blocking=True)
             with autocast_ctx():
                 _, loss = m(X, targets=Y)
-                loss = loss / accum_steps           # scale loss for gradient accumulation
+            optimizer.zero_grad(set_to_none=True)  # clear old gradients efficiently
             loss.backward()
-             
-            if step % accum_steps == 0:
-                if config.grad_clipping > 0.0: # gradient norm clipping
-                    normi = torch.nn.utils.clip_grad_norm_(m.parameters(), config.grad_clipping)  
-                optimizer.step()                       # optimizer update
-                optimizer.zero_grad(set_to_none=True)  # clear gradients for next step
+            if config.grad_clipping > 0.0: # gradient norm clipping
+                normi = torch.nn.utils.clip_grad_norm_(m.parameters(), config.grad_clipping)  
+            optimizer.step()                       # optimizer update
+            
             lossi.append(loss.item())
-
-            if step % (eval_interval * accum_steps) == 0:
+            if step % eval_interval == 0:
                 loss_curve_tr.append(torch.tensor(lossi).mean().item()) 
                 if config.grad_clipping > 0.0:
                     norm = normi.mean().item()
