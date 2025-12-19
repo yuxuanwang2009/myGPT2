@@ -6,7 +6,7 @@ Minimal GPT‑2‑style language model and training pipeline for experimenting w
 
 - `model.py` — GPT model, attention blocks, and generation helpers; includes a class method to load GPT‑2 weights directly.
 - `train_utils.py` — optimizer construction, learning‑rate schedule, training loop, checkpointing.
-- `data_utils.py` — tokenization helpers, dataset, and DataLoaders.
+- `data_utils.py` — tokenization helpers, dataset, and DataLoaders; supports tiktoken or a trainable custom tokenizer.
 - `config.py` — model and training hyperparameters.
 - `run_train.py` — training entrypoint.
 - `run_pretrained.py` — load a checkpoint and sample text.
@@ -44,6 +44,21 @@ accum_steps = macro_batch_size // batch_size
 - Pads with newline tokens near the end of the stream.
 
 Train/val split happens in `Construct_data_loaders` using `config.split`. Validation uses the actual number of starts; training uses a fixed length derived from `config.max_steps`.
+
+## BPE tokenizer (custom)
+
+This repo includes a trainable regex‑based BPE tokenizer in `regex_tokenizer.py`.
+
+- Train a tokenizer:
+  ```
+  python train_tokenizer.py
+  ```
+  This writes `tokenizer.json`.
+- Use it in training by setting `use_tiktoken = False` in `config.py`. `data_utils.py` will load `tokenizer.json`.
+
+Implementation notes:
+- The tokenizer splits text with a GPT‑4‑style regex and learns merges up to `config.vocab_size`.
+- It supports `encode`, `decode`, and save/load for reproducibility.
 
 ## Training
 
