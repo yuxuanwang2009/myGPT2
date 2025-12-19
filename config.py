@@ -60,7 +60,7 @@ class Config:
     @classmethod
     def small(cls) -> "Config":
         return cls(
-            n_emb=240,
+            n_emb=120,
             n_layers=6,
             n_heads=8,
             T=64,

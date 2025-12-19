@@ -100,7 +100,7 @@ def Construct_data_loaders(data:torch.Tensor, T, batch_size) -> DataLoader:
         train_loader = DataLoader(
             ds_tr,
             batch_size=batch_size,
-            shuffle=True,
+            shuffle=False,
             num_workers=8,
             pin_memory=True,
             prefetch_factor=4,

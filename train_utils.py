@@ -57,7 +57,7 @@ def Train(m, train_loader: DataLoader, val_loader: DataLoader, optimizer, eval_i
     step = 0
     lr = optimizer.param_groups[0]['lr'] 
     epoch_idx = 0
-    while len(loss_curve_val) < 2 or loss_curve_val[-1] / loss_curve_val[-indices_back] < 0.998 and lr > minimal_lr:
+    while len(loss_curve_val) < 2 or loss_curve_val[-1] / loss_curve_val[-indices_back] < config.loss_ratio_end_trigger and lr > minimal_lr:
         # --- start timing this epoch ---
         maybe_sync() # only on CUDA
         t0 = time.time()
@@ -127,9 +127,16 @@ def Train(m, train_loader: DataLoader, val_loader: DataLoader, optimizer, eval_i
             fig.savefig("loss_plot.png", dpi=300, bbox_inches="tight")
             
             # Adjust the learning rate
-            indices_back = int(len(loss_curve_val) * 0.2) + 2
-            print(f"Loss have reduced by {(1 - loss_curve_val[-1] / loss_curve_val[-indices_back]) * 100:.4g}% over the past 20% of the total training time.", flush=True)
-            if loss_curve_val[-1] / loss_curve_val[-indices_back] > 0.99:
+            indices_back = int(len(loss_curve_val) * config.loss_comparison_fraction) + 2
+            print(
+                (
+                    "Loss have reduced by "
+                    f"{(1 - loss_curve_val[-1] / loss_curve_val[-indices_back]) * 100:.4g}% "
+                    "over the past 20% of the total training time."
+                ),
+                flush=True,
+            )
+            if loss_curve_val[-1] / loss_curve_val[-indices_back] > config.loss_ratio_trigger:
                 lr /= config.lrReductionRatio
                 for g in optimizer.param_groups:
                     g['lr'] = lr
