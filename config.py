@@ -39,6 +39,7 @@ class Config:
     epoch_steps: int = 256000  # how many batched blocks to feed
     eval_interval: int = 2000
     batch_size: int = 16
+    macro_batch_size: int = 512  # for gradient accumulation to simulate larger batch sizes
 
     # optimizer
     lr: float = 1e-4
@@ -52,8 +53,9 @@ class Config:
     def __post_init__(self) -> None:
         self.n_ffd_hidden = 4 * self.n_emb
 
-        assert self.epoch_steps % self.batch_size == 0
-        assert self.epoch_steps % (self.eval_interval * self.batch_size) == 0
+        assert self.epoch_steps % self.macro_batch_size == 0
+        assert self.epoch_steps % (self.eval_interval * self.macro_batch_size) == 0
+        assert self.macro_batch_size % self.batch_size == 0
     
     @classmethod
     def small(cls) -> "Config":
@@ -61,17 +63,18 @@ class Config:
             n_emb=240,
             n_layers=6,
             n_heads=8,
-            T=128,
+            T=64,
             vocab_size=512,
             dropout=0.3,
             batch_size=64,
+            macro_batch_size=64,
             bias=False,
             use_tiktoken=False,
             epoch_steps=6400, # total number of tokens ~ 300k in tinyshakespeare.txt, context length 64
             eval_interval=100,
             weight_decay=0.01,
             weight_tying=False,
-            grad_clipping=2.0
+            grad_clipping=2.5
         )
 
 cfg = Config().small()
@@ -93,6 +96,7 @@ split = cfg.split
 epoch_steps = cfg.epoch_steps
 eval_interval = cfg.eval_interval
 batch_size = cfg.batch_size
+macro_batch_size = cfg.macro_batch_size
 
 lr = cfg.lr
 lrReductionRatio = cfg.lrReductionRatio
