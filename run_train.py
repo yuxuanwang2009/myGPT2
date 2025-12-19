@@ -1,9 +1,8 @@
 import argparse
-import inspect
 import torch
 import config
 from model import GPTLanguageModel
-from train import Train
+from train_utils import Train, Construct_optimizer
 from data_utils import Construct_data_loaders
 from run_pretrained import load_pretrained
 import os
@@ -33,33 +32,13 @@ def main():
     # 1. Construct the model
     if not args.resume:
         model = GPTLanguageModel(cfg=config.cfg).to(config.device)
-        # Compile (CUDA only); drop max-autotune to avoid Triton benchmark spam
-        if torch.cuda.is_available() and device_type == "cuda":
-            model = torch.compile(model)
-
-        decay, no_decay = [], []
-        for name, param in model.named_parameters():
-            if not param.requires_grad: 
-                continue
-            if param.ndim == 1 or name.endswith(".bias") or "ln_" in name:
-                no_decay.append(param)
-            else:
-                decay.append(param)
-        fused_available = "fused" in inspect.signature(torch.optim.AdamW).parameters
-        use_fused = fused_available and device_type == "cuda"
-
-        optimizer = torch.optim.AdamW(
-            [
-                {"params": decay, "weight_decay": config.weight_decay},
-                {"params": no_decay, "weight_decay": 0.0},
-            ],
-            lr=config.lr,
-            fused=use_fused,
-        )
-    
-    # 2. Optionally resume from checkpoint
+        optimizer = Construct_optimizer(model, config.lr, config.weight_decay, config.device)
     else:
         model, optimizer = load_pretrained("checkpoint.pt", training=True)
+    
+    # Compile (CUDA only); drop max-autotune to avoid Triton benchmark spam
+    if torch.cuda.is_available() and device_type == "cuda":
+        model = torch.compile(model)
 
     # 3. Build dataloaders
     from import_data import data

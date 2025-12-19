@@ -36,8 +36,8 @@ class Config:
 
     # data
     split: float = 0.9
-    epoch_steps: int = 256000  # how many batched blocks to feed
-    eval_interval: int = 2000
+    epoch_steps: int = 262144  # how many batched blocks to feed
+    eval_interval: int = 64
     batch_size: int = 16
     macro_batch_size: int = 512  # for gradient accumulation to simulate larger batch sizes
 
@@ -66,7 +66,7 @@ class Config:
             T=64,
             vocab_size=512,
             dropout=0.3,
-            batch_size=64,
+            batch_size=32,
             macro_batch_size=64,
             bias=False,
             use_tiktoken=False,
