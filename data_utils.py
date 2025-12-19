@@ -108,7 +108,7 @@ def Construct_data_loaders(data:torch.Tensor, T, batch_size) -> DataLoader:
         )
         val_loader = DataLoader(
             ds_va,
-            batch_size=8,
+            batch_size=32,
             num_workers=2,
             pin_memory=True,
         )
@@ -123,7 +123,7 @@ def Construct_data_loaders(data:torch.Tensor, T, batch_size) -> DataLoader:
         )
         val_loader = DataLoader(
             ds_va,
-            batch_size=8,
+            batch_size=32,
             num_workers=0,
             pin_memory=False,
         )

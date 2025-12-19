@@ -62,7 +62,7 @@ class Config:
         return cls(
             n_emb=120,
             n_layers=6,
-            n_heads=8,
+            n_heads=6,
             T=64,
             vocab_size=512,
             dropout=0.3,
@@ -70,7 +70,7 @@ class Config:
             macro_batch_size=64,
             bias=False,
             use_tiktoken=False,
-            epoch_steps=6400, # total number of tokens ~ 300k in tinyshakespeare.txt, context length 64
+            epoch_steps=6400, # total number of tokens ~ 500k in tinyshakespeare.txt, context length 64, macro batch size 64
             eval_interval=100,
             weight_decay=0.01,
             weight_tying=False,
