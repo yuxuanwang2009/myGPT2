@@ -63,7 +63,7 @@ def main():
     # 1. Construct the model
     if not args.resume:
         model = GPTLanguageModel(cfg=config.cfg).to(device)
-        optimizer = Construct_optimizer(model, config.lr, config.weight_decay, config.device)
+        optimizer = Construct_optimizer(model, config.lr, config.weight_decay, device)
     else:
         model, optimizer = load_pretrained("checkpoint.pt", training=True, device=device)
     
