@@ -1,5 +1,7 @@
 import torch
+import torch.distributed as dist
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.distributed import DistributedSampler
 import config
 import regex_tokenizer as rt
 import tiktoken
@@ -52,7 +54,8 @@ class BlockPairDataset(Dataset):
     def __getitem__(self, i:int):
 
         if self.train:
-            s = self.starts[i % len(self.starts)].item()
+            s = self.starts[i % len(self.starts)].item() 
+            # TODO: modulo arithmatic may cause some ranks to see fewer unique samples in distributed training
         else:
             s = self.starts[i].item()        
 
@@ -92,11 +95,19 @@ def Construct_data_loaders(data:torch.Tensor) -> DataLoader:
     ds_tr = BlockPairDataset(data_tr, config.T, train=True) # Dataset objects 
     ds_va = BlockPairDataset(data_val, config.T, train=False)
 
+    distributed = dist.is_available() and dist.is_initialized()
+    rank = dist.get_rank() if distributed else 0
+    world_size = dist.get_world_size() if distributed else 1
+    train_sampler = DistributedSampler(ds_tr, num_replicas=world_size, rank=rank, shuffle=True) if distributed else None
+    val_sampler = DistributedSampler(ds_va, num_replicas=world_size, rank=rank, shuffle=False, drop_last=True) if distributed else None
+
     # Convert the Datasets to Dataloaders with backend-specific settings
     if cuda:
         train_loader = DataLoader(
             ds_tr,
             batch_size=config.batch_size,
+            sampler=train_sampler,
+            shuffle=False,
             num_workers=8,
             pin_memory=True,
             prefetch_factor=4,
@@ -105,6 +116,8 @@ def Construct_data_loaders(data:torch.Tensor) -> DataLoader:
         val_loader = DataLoader(
             ds_va,
             batch_size=config.batch_size,
+            sampler=val_sampler,
+            shuffle=False,
             num_workers=2,
             pin_memory=True,
         )
@@ -113,16 +126,21 @@ def Construct_data_loaders(data:torch.Tensor) -> DataLoader:
         train_loader = DataLoader(
             ds_tr,
             batch_size=config.batch_size,
+            sampler=train_sampler,
+            shuffle=False,
             num_workers=0,
             pin_memory=False,
         )
         val_loader = DataLoader(
             ds_va,
             batch_size=config.batch_size,
+            sampler=val_sampler,
+            shuffle=False,
             num_workers=0,
             pin_memory=False,
         )
 
-    print(f"Training data (with repetition) consist of {len(ds_tr) // config.macro_batch_size} (macro)batches of text.", flush=True)
-    print(f"Validation data consist of {len(ds_va) // config.macro_batch_size} (macro)batches of text.\n", flush=True)
-    return train_loader, val_loader
+    if rank == 0:
+        print(f"Training data (with repetition) consist of {len(ds_tr) // config.macro_batch_size} (macro)batches of text.", flush=True)
+        print(f"Validation data consist of {len(ds_va) // config.macro_batch_size} (macro)batches of text.\n", flush=True)
+    return train_loader, val_loader, train_sampler

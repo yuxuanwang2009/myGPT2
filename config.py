@@ -40,6 +40,7 @@ class Config:
     eval_interval: int = 64
     batch_size: int = 16
     macro_batch_size: int = 512  # for gradient accumulation to simulate larger batch sizes
+    world_size: int = 1 # for distributed training
 
     # optimizer
     lr: float = 1e-4
@@ -56,7 +57,7 @@ class Config:
 
         assert self.max_steps % self.macro_batch_size == 0
         assert self.max_steps % (self.eval_interval * self.macro_batch_size) == 0
-        assert self.macro_batch_size % self.batch_size == 0
+        assert self.macro_batch_size % (self.batch_size * self.world_size) == 0
     
     @classmethod
     def small(cls) -> "Config":
@@ -76,7 +77,8 @@ class Config:
             warmup_ratio=0.0,
             weight_decay=0.02,
             weight_tying=False,
-            grad_clipping=2.5
+            grad_clipping=2.5,
+            world_size=1
         )
 
 cfg = Config().small()
@@ -99,6 +101,7 @@ max_steps = cfg.max_steps
 eval_interval = cfg.eval_interval
 batch_size = cfg.batch_size
 macro_batch_size = cfg.macro_batch_size
+world_size = cfg.world_size
 
 lr = cfg.lr
 min_lr = cfg.min_lr

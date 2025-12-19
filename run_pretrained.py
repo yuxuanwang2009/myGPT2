@@ -6,13 +6,26 @@ from data_utils import ttos, stot
 from model import GPTLanguageModel
 
 # Utility functions
-def load_pretrained(checkpoint_path: str = "checkpoint.pt", training = False) -> GPTLanguageModel:
-    model = GPTLanguageModel(cfg=config.cfg).to(config.device)
-    ckpt = torch.load(checkpoint_path, map_location=config.device)    
+# Keep optimizer state tensors on the same device as the model after resume.
+def _move_optimizer_state(optimizer: torch.optim.Optimizer, device: torch.device) -> None:
+    for state in optimizer.state.values():
+        for k, v in state.items():
+            if torch.is_tensor(v):
+                state[k] = v.to(device, non_blocking=True)
+
+def load_pretrained(
+    checkpoint_path: str = "checkpoint.pt",
+    training: bool = False,
+    device: torch.device | None = None,
+) -> GPTLanguageModel:
+    device = device or config.device  # allow per-rank device override for DDP
+    model = GPTLanguageModel(cfg=config.cfg).to(device)
+    ckpt = torch.load(checkpoint_path, map_location=device)  # load directly onto the target device
     model.load_state_dict(ckpt["model"])
     if training == True:
         optimizer = torch.optim.AdamW(model.parameters(), 0)
         optimizer.load_state_dict(ckpt["optimizer"])
+        _move_optimizer_state(optimizer, device)  # ensure optimizer state is on the same device
         model.train()
         return model, optimizer
     else:

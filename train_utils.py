@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import time
 import math
 import config
+import torch.distributed as dist
 from torch.utils.data import DataLoader
 import inspect
 
@@ -46,6 +47,15 @@ def _get_cos_lr(step: int, max_steps: int, max_lr: float, min_lr: float, warmup_
     cosine = 0.5 * (1.0 + math.cos(math.pi * decay_frac))
     return min_lr + (max_lr - min_lr) * cosine
 
+def _is_distributed() -> bool:
+    return dist.is_available() and dist.is_initialized()
+
+def _get_world_size() -> int:
+    return dist.get_world_size() if _is_distributed() else max(1, config.world_size)
+
+def _is_rank_zero() -> bool:
+    return (not _is_distributed()) or dist.get_rank() == 0
+
 
 def Train(m, train_loader: DataLoader, val_loader: DataLoader, optimizer, eval_interval, device):
     m.train()
@@ -76,19 +86,23 @@ def Train(m, train_loader: DataLoader, val_loader: DataLoader, optimizer, eval_i
     optimizer.zero_grad(set_to_none=True)  # clear old gradients efficiently
     lossi = []
     normi = []
-    accum_steps = config.macro_batch_size // config.batch_size # gradient accumulation steps
+    world_size = _get_world_size()
+    accum_steps = config.macro_batch_size // (config.batch_size * world_size) # gradient accumulation steps
     loss_accum = 0.0
     macro_batch_count = 0
 
     for microstep, (X, Y) in enumerate(train_loader): 
-        X, Y = X.to(device, non_blocking=True), Y.to(device, non_blocking=True)
-        with autocast_ctx():
-            _, loss = m(X, targets=Y)
-            loss = loss / accum_steps           # scale loss for gradient accumulation
-            loss_accum += loss.detach() # use .detach() to avoid keeping the full graph. not using loss.item() to keep it in the same device
-        loss.backward() # why does this stay outside autocast_ctx? --- because we want to keep gradients in full precision
+        is_update_step = (microstep + 1) % accum_steps == 0
+        sync_ctx = contextlib.nullcontext() if (is_update_step or not hasattr(m, "no_sync")) else m.no_sync()
+        with sync_ctx:
+            X, Y = X.to(device, non_blocking=True), Y.to(device, non_blocking=True)
+            with autocast_ctx():
+                _, loss = m(X, targets=Y)
+                loss = loss / accum_steps           # scale loss for gradient accumulation
+                loss_accum += loss.detach() # use .detach() to avoid keeping the full graph. not using loss.item() to keep it in the same device
+            loss.backward() # why does this stay outside autocast_ctx? --- because we want to keep gradients in full precision
             
-        if (microstep + 1) % accum_steps == 0:
+        if is_update_step:
             lr = _get_cos_lr(macro_batch_count, config.max_steps, max_lr, config.min_lr, config.warmup_ratio)
             for g in optimizer.param_groups:
                 g["lr"] = lr
@@ -107,29 +121,39 @@ def Train(m, train_loader: DataLoader, val_loader: DataLoader, optimizer, eval_i
                 norm = normi.mean().item()
             m.eval()
             with torch.no_grad():
-                lossi_val = []
+                loss_sum = 0.0
+                loss_count = 0
                 for idx_block, (X_val, Y_val) in enumerate(val_loader):
                     X_val, Y_val = X_val.to(device, non_blocking=True), Y_val.to(device, non_blocking=True)    
                     with autocast_ctx():
                         _, loss = m(X_val, targets=Y_val)  
-                    lossi_val.append(loss.item())
-            loss_val = sum(lossi_val)/len(lossi_val)
-            loss_curve_val.append(loss_val)
-            lossi_val = []
+                    batch_size = X_val.size(0)
+                    loss_sum += loss.item() * batch_size
+                    loss_count += batch_size
+            if _is_distributed():
+                totals = torch.tensor([loss_sum, loss_count], device=device)
+                dist.all_reduce(totals, op=dist.ReduceOp.SUM)
+                loss_sum = totals[0].item()
+                loss_count = totals[1].item()
+            loss_val = loss_sum / max(1.0, loss_count)
+            if _is_rank_zero():
+                loss_curve_val.append(loss_val)
             m.train()
 
             # --- end timing ---
             maybe_sync()
             dt = time.time() - t0
-            print(f"\nTrained on {(microstep + 1) // accum_steps} (macro)batches: {dt / eval_interval:.2f}s per (macro)batch", flush=True)
+            if _is_rank_zero():
+                print(f"\nTrained on {(microstep + 1) // accum_steps} (macro)batches: {dt / eval_interval:.2f}s per (macro)batch", flush=True)
             t0= time.time()
 
-            if config.grad_clipping:
-                print(f"Norm of the gradient is {norm:.5g}. Learning rate is {lr:.5g}. Loss is {loss_val:.5g}.", flush=True)
-            else:
-                print(f"Learning rate is {lr:.5g}. Loss is {loss_val:.5g}.", flush=True)   
+            if _is_rank_zero():
+                if config.grad_clipping:
+                    print(f"Norm of the gradient is {norm:.5g}. Learning rate is {lr:.5g}. Loss is {loss_val:.5g}.", flush=True)
+                else:
+                    print(f"Learning rate is {lr:.5g}. Loss is {loss_val:.5g}.", flush=True)   
 
-            if len(loss_curve_tr) > 1:
+            if _is_rank_zero() and len(loss_curve_tr) > 1:
                 # Build the plot
                 ax.clear()
                 x_axis = np.arange(1, len(loss_curve_tr)+1) * eval_interval
@@ -141,9 +165,10 @@ def Train(m, train_loader: DataLoader, val_loader: DataLoader, optimizer, eval_i
                 # Save first, then show
                 fig.savefig("loss_plot.png", dpi=300, bbox_inches="tight")
     
-    to_save = m._orig_mod if hasattr(m, "_orig_mod") else m
-    torch.save({
-    "model": to_save.state_dict(),
-    "optimizer": optimizer.state_dict(),
-    }, "checkpoint.pt")
-    print("Model checkpoint saved to checkpoint.pt.\n", flush=True)
+    if _is_rank_zero():
+        to_save = m.module if hasattr(m, "module") else (m._orig_mod if hasattr(m, "_orig_mod") else m)
+        torch.save({
+        "model": to_save.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        }, "checkpoint.pt")
+        print("Model checkpoint saved to checkpoint.pt.\n", flush=True)
