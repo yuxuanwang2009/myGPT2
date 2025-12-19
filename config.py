@@ -71,7 +71,7 @@ class Config:
             macro_batch_size=64,
             bias=False,
             use_tiktoken=False,
-            max_steps=384000 * 3, # in terms of macrobatches
+            max_steps=384000, # in terms of macrobatches
             eval_interval=600, # in terms of macrobatches
             warmup_ratio=0.0,
             weight_decay=0.02,

@@ -81,9 +81,6 @@ def Train(m, train_loader: DataLoader, val_loader: DataLoader, optimizer, eval_i
     macro_batch_count = 0
 
     for microstep, (X, Y) in enumerate(train_loader): 
-        # --- start timing ---
-        maybe_sync() # only on CUDA
-
         X, Y = X.to(device, non_blocking=True), Y.to(device, non_blocking=True)
         with autocast_ctx():
             _, loss = m(X, targets=Y)
