@@ -36,14 +36,15 @@ class Config:
 
     # data
     split: float = 0.9
-    epoch_steps: int = 262144  # how many batched blocks to feed
+    max_steps: int = 262144  # how many batches to train for
     eval_interval: int = 64
     batch_size: int = 16
     macro_batch_size: int = 512  # for gradient accumulation to simulate larger batch sizes
 
     # optimizer
     lr: float = 1e-4
-    lrReductionRatio: float = 2.0
+    min_lr: float = 1e-6
+    warmup_ratio: float = 0.03
     weight_decay: float = 0.1  # GPT-2 value
     grad_clipping: float = 1.0  # gradient norm clipping
 
@@ -53,8 +54,8 @@ class Config:
     def __post_init__(self) -> None:
         self.n_ffd_hidden = 4 * self.n_emb
 
-        assert self.epoch_steps % self.macro_batch_size == 0
-        assert self.epoch_steps % (self.eval_interval * self.macro_batch_size) == 0
+        assert self.max_steps % self.macro_batch_size == 0
+        assert self.max_steps % (self.eval_interval * self.macro_batch_size) == 0
         assert self.macro_batch_size % self.batch_size == 0
     
     @classmethod
@@ -62,7 +63,7 @@ class Config:
         return cls(
             n_emb=120,
             n_layers=6,
-            n_heads=8,
+            n_heads=6,
             T=64,
             vocab_size=512,
             dropout=0.3,
@@ -70,9 +71,10 @@ class Config:
             macro_batch_size=64,
             bias=False,
             use_tiktoken=False,
-            epoch_steps=6400, # total number of tokens ~ 300k in tinyshakespeare.txt, context length 64
-            eval_interval=100,
-            weight_decay=0.01,
+            max_steps=384000 * 3, # in terms of macrobatches
+            eval_interval=600, # in terms of macrobatches
+            warmup_ratio=0.0,
+            weight_decay=0.02,
             weight_tying=False,
             grad_clipping=2.5
         )
@@ -93,42 +95,15 @@ weight_tying = cfg.weight_tying
 device = cfg.device
 
 split = cfg.split
-epoch_steps = cfg.epoch_steps
+max_steps = cfg.max_steps
 eval_interval = cfg.eval_interval
 batch_size = cfg.batch_size
 macro_batch_size = cfg.macro_batch_size
 
 lr = cfg.lr
-lrReductionRatio = cfg.lrReductionRatio
+min_lr = cfg.min_lr
+warmup_ratio = cfg.warmup_ratio
 weight_decay = cfg.weight_decay
 grad_clipping = cfg.grad_clipping
 
 use_tiktoken = cfg.use_tiktoken
-
-__all__ = [
-    "Config",
-    "cfg",
-    # model
-    "n_emb",
-    "T",
-    "vocab_size",
-    "n_layers",
-    "n_heads",
-    "n_ffd_hidden",
-    "bias",
-    "dropout",
-    "label_smoothing",
-    "weight_tying",
-    "device",
-    # data
-    "split",
-    "epoch_steps",
-    "eval_interval",
-    "batch_size",
-    # optimizer
-    "lr",
-    "lrReductionRatio",
-    "weight_decay",
-    # tokenizer
-    "use_tiktoken"
-]

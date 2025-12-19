@@ -42,10 +42,10 @@ def main():
 
     # 3. Build dataloaders
     from import_data import data
-    train_loader, val_loader = Construct_data_loaders(data, config.T, batch_size=config.batch_size)
+    train_loader, val_loader = Construct_data_loaders(data)
 
     # 4. Train and save weights
-    Train(model, train_loader, val_loader, optimizer, config.eval_interval, minimal_lr=1e-6, device=config.device)
+    Train(model, train_loader, val_loader, optimizer, config.eval_interval, device=config.device)
 
 if __name__ == "__main__":
     main()

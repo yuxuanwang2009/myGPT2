@@ -31,30 +31,28 @@ class BlockPairDataset(Dataset):
     - x: [block_size] token IDs
     - y: [block_size] token IDs (x shifted by one position)
     """
-    def __init__(self, data: torch.Tensor, T: int, random=True):
+    def __init__(self, data: torch.Tensor, T: int, train=True):
         self.data = data         # token-id stream (int tensor)
+        # print (f"Constructing BlockPairDataset, data length: {len(self.data)} tokens.", flush=True)
         self.T = T
-        self.random = random
+        self.train = train
         self.pad_id = stot("\n").item()
 
         # For boundary-free corpora, step through the stream with stride T when deterministic
-        if self.random:
-            self.starts = None
-            self.N = config.epoch_steps
+        self.starts = torch.arange(0, len(self.data), self.T) 
+        if self.train:
+            self.N = config.max_steps * config.macro_batch_size
         else:
-            max_start = max(len(self.data) - (self.T + 1), 0)
-            self.starts = torch.arange(0, max_start + 1, self.T)
             self.N = len(self.starts)
 
     def __len__(self):
-        # DataLoader will treat this as "samples per epoch"
+        # DataLoader will treat this as "blocks in the dataset"
         return self.N
 
     def __getitem__(self, i:int):
 
-        if self.random:
-            max_start = max(len(self.data) - (self.T + 1), 0)
-            s = torch.randint(max_start + 1, (1,)).item() if max_start > 0 else 0
+        if self.train:
+            s = self.starts[i % len(self.starts)].item()
         else:
             s = self.starts[i].item()        
 
@@ -63,6 +61,7 @@ class BlockPairDataset(Dataset):
         seq = self.data[s:end]
 
         # If near end-of-stream, pad with '\n' token to fixed length
+
         if seq.numel() < self.T + 1:
             pad_len = self.T + 1 - seq.numel()
             pad = torch.full((pad_len,), self.pad_id, dtype=self.data.dtype)
@@ -78,9 +77,7 @@ class BlockPairDataset(Dataset):
 # BlockPairDataset - Dataset whose items are (x,y) pairs of token ID tensors with context length T
 # DataLoader - loads BlockPairDataset into batches for training
 # Output: train_loader, val_loader which are DataLoader objects
-# In Andrej's implementation, DataLoaderLite takes reads the .txt file and 
-# return x, y pairs using a next_batch method -- much simpler.
-def Construct_data_loaders(data:torch.Tensor, T, batch_size) -> DataLoader:
+def Construct_data_loaders(data:torch.Tensor) -> DataLoader:
     # Train/val split into two tensors
     len_ = data.numel()
     len_tr = int(len_ * config.split)
@@ -92,15 +89,14 @@ def Construct_data_loaders(data:torch.Tensor, T, batch_size) -> DataLoader:
     cuda = torch.cuda.is_available() and device_type == "cuda"
 
     # Convert torch.Tensor to Dataset of proper context blocks
-    ds_tr = BlockPairDataset(data_tr, T, random = True) # Dataset objects 
-    ds_va = BlockPairDataset(data_val, T, random = False)
+    ds_tr = BlockPairDataset(data_tr, config.T, train=True) # Dataset objects 
+    ds_va = BlockPairDataset(data_val, config.T, train=False)
 
     # Convert the Datasets to Dataloaders with backend-specific settings
     if cuda:
         train_loader = DataLoader(
             ds_tr,
-            batch_size=batch_size,
-            shuffle=False,
+            batch_size=config.batch_size,
             num_workers=8,
             pin_memory=True,
             prefetch_factor=4,
@@ -108,7 +104,7 @@ def Construct_data_loaders(data:torch.Tensor, T, batch_size) -> DataLoader:
         )
         val_loader = DataLoader(
             ds_va,
-            batch_size=8,
+            batch_size=config.batch_size,
             num_workers=2,
             pin_memory=True,
         )
@@ -116,18 +112,17 @@ def Construct_data_loaders(data:torch.Tensor, T, batch_size) -> DataLoader:
         # CPU / MPS: simpler loader settings; adjust workers as desired
         train_loader = DataLoader(
             ds_tr,
-            batch_size=batch_size,
-            shuffle=True,
+            batch_size=config.batch_size,
             num_workers=0,
             pin_memory=False,
         )
         val_loader = DataLoader(
             ds_va,
-            batch_size=8,
+            batch_size=config.batch_size,
             num_workers=0,
             pin_memory=False,
         )
-    
-    print(f"Training data (one epoch) consist of {len(ds_tr)} batched blocks of text.", flush=True)
-    print(f"Validation data consist of {len(ds_va)} batched blocks of text.\n", flush=True)
+
+    print(f"Training data (with repetition) consist of {len(ds_tr) // config.macro_batch_size} batches of text.", flush=True)
+    print(f"Validation data consist of {len(ds_va) // config.macro_batch_size} microbatches of text.\n", flush=True)
     return train_loader, val_loader

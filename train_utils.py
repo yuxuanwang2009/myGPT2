@@ -4,6 +4,7 @@ import contextlib
 import numpy as np
 import matplotlib.pyplot as plt
 import time
+import math
 import config
 from torch.utils.data import DataLoader
 import inspect
@@ -30,8 +31,23 @@ def Construct_optimizer(model, lr, weight_decay, device_type):
     )
     return optimizer
 
+def _get_cos_lr(step: int, max_steps: int, max_lr: float, min_lr: float, warmup_ratio: float) -> float:
+    max_steps = max(1, max_steps)
+    warmup_steps = max(1, int(warmup_ratio * max_steps))
+    step = min(step, max_steps - 1)
 
-def Train(m, train_loader: DataLoader, val_loader: DataLoader, optimizer, eval_interval, minimal_lr, device):
+    if step < warmup_steps:
+        warmup_frac = (step + 1) / warmup_steps
+        return min_lr + (max_lr - min_lr) * warmup_frac
+
+    decay_steps = max(1, max_steps - warmup_steps)
+    decay_frac = (step - warmup_steps) / decay_steps
+    decay_frac = min(max(decay_frac, 0.0), 1.0)
+    cosine = 0.5 * (1.0 + math.cos(math.pi * decay_frac))
+    return min_lr + (max_lr - min_lr) * cosine
+
+
+def Train(m, train_loader: DataLoader, val_loader: DataLoader, optimizer, eval_interval, device):
     m.train()
     for p in m.parameters():
         p.requires_grad = True 
@@ -52,96 +68,81 @@ def Train(m, train_loader: DataLoader, val_loader: DataLoader, optimizer, eval_i
 
     loss_curve_tr = []
     loss_curve_val = []
-    indices_back = 1
     fig, ax = plt.subplots()
-    step = 0
-    lr = optimizer.param_groups[0]['lr'] 
-    epoch_idx = 0
-    while len(loss_curve_val) < 2 or loss_curve_val[-1] / loss_curve_val[-indices_back] < config.loss_ratio_end_trigger and lr > minimal_lr:
-        # --- start timing this epoch ---
+    lr = optimizer.param_groups[0]['lr']
+    max_lr = lr
+
+    t0 = time.time()
+    optimizer.zero_grad(set_to_none=True)  # clear old gradients efficiently
+    lossi = []
+    normi = []
+    accum_steps = config.macro_batch_size // config.batch_size # gradient accumulation steps
+    loss_accum = 0.0
+    macro_batch_count = 0
+
+    for microstep, (X, Y) in enumerate(train_loader): 
+        # --- start timing ---
         maybe_sync() # only on CUDA
-        t0 = time.time()
 
-        lossi = []
-        normi = []
-        loss_accum = 0.0
-
-        accum_steps = config.macro_batch_size // config.batch_size # gradient accumulation to simulate larger batch sizes
-        optimizer.zero_grad(set_to_none=True)  # clear old gradients efficiently
-
-        # Steps in an epoch, start = step+1 to continue counting steps across epochs.
-        for step, (X, Y) in enumerate(train_loader, start=step+1): 
-            X, Y = X.to(device, non_blocking=True), Y.to(device, non_blocking=True)
-            with autocast_ctx():
-                _, loss = m(X, targets=Y)
-                loss = loss / accum_steps           # scale loss for gradient accumulation
-                loss_accum += loss.detach() # use .detach() to avoid keeping the full graph. not using loss.item() to keep it in the same device
-            loss.backward() # why does this stay outside autocast_ctx? --- because we want to keep gradients in full precision
-             
-            if step % accum_steps == 0:
-                if config.grad_clipping > 0.0: # gradient norm clipping
-                    normi = torch.nn.utils.clip_grad_norm_(m.parameters(), config.grad_clipping)  
-                optimizer.step()                       # optimizer update
-                optimizer.zero_grad(set_to_none=True)  # clear gradients for next step
-                lossi.append(loss_accum.item())
-                loss_accum = 0.0
-
-            if step % (eval_interval * accum_steps) == 0:
-                loss_curve_tr.append(sum(lossi)/len(lossi))
-                if config.grad_clipping > 0.0:
-                    norm = normi.mean().item()
-                m.eval()
-                with torch.no_grad():
-                    lossi_val = []
-                    for idx_block, (X_val, Y_val) in enumerate(val_loader):
-                        X_val, Y_val = X_val.to(device, non_blocking=True), Y_val.to(device, non_blocking=True)    
-                        with autocast_ctx():
-                            _, loss = m(X_val, targets=Y_val)  
-                        lossi_val.append(loss.item())
-                loss_val = (sum(lossi_val) / (idx_block + 1))#.item()
-                lossi_val = []
-                m.train()
-                loss_curve_val.append(loss_val) 
-
-        # --- end timing this epoch ---
-        maybe_sync()
-        dt = time.time() - t0
-        print(f"\nEpoch {epoch_idx}: {dt:.2f}s ({dt/60:.2f}min)", flush=True)
-        epoch_idx += 1
-
-        if config.grad_clipping:
-            print(f"Trained on {step} batches in total. Norm is {norm:.5g}. Loss is {loss_val:.5g}.", flush=True)
-        else:
-            print(f"Trained on {step} batches in total. Loss is {loss_val:.5g}.", flush=True)   
-
-        if len(loss_curve_tr) > 1:
-            # Build the plot
-            ax.clear()
-            x_axis = np.arange(1, len(loss_curve_tr)+1) * eval_interval
-            ax.loglog(x_axis, loss_curve_tr, label=f"train, final = {loss_curve_tr[-1]:.4f}")
-            ax.loglog(x_axis, loss_curve_val, label=f"validation, final = {loss_curve_val[-1]:.4f}")
-            ax.set_xlabel(f"Training step")
-            ax.set_ylabel("Loss")
-            ax.legend()
-            # Save first, then show
-            fig.savefig("loss_plot.png", dpi=300, bbox_inches="tight")
+        X, Y = X.to(device, non_blocking=True), Y.to(device, non_blocking=True)
+        with autocast_ctx():
+            _, loss = m(X, targets=Y)
+            loss = loss / accum_steps           # scale loss for gradient accumulation
+            loss_accum += loss.detach() # use .detach() to avoid keeping the full graph. not using loss.item() to keep it in the same device
+        loss.backward() # why does this stay outside autocast_ctx? --- because we want to keep gradients in full precision
             
-            # Adjust the learning rate
-            indices_back = int(len(loss_curve_val) * config.loss_comparison_fraction) + 2
-            print(
-                (
-                    "Loss have reduced by "
-                    f"{(1 - loss_curve_val[-1] / loss_curve_val[-indices_back]) * 100:.4g}% "
-                    "over the past 20% of the total training time."
-                ),
-                flush=True,
-            )
-            if loss_curve_val[-1] / loss_curve_val[-indices_back] > config.loss_ratio_trigger:
-                lr /= config.lrReductionRatio
-                for g in optimizer.param_groups:
-                    g['lr'] = lr
-                print(f"Reducing learning rate to {lr:.4g}.\n", flush=True)
-            else: print(f"Learning rate kept at {lr:.4g}.\n", flush=True)
+        if (microstep + 1) % accum_steps == 0:
+            lr = _get_cos_lr(macro_batch_count, config.max_steps, max_lr, config.min_lr, config.warmup_ratio)
+            for g in optimizer.param_groups:
+                g["lr"] = lr
+            if config.grad_clipping > 0.0: # gradient norm clipping
+                normi = torch.nn.utils.clip_grad_norm_(m.parameters(), config.grad_clipping)  
+            optimizer.step()                       # optimizer update
+            optimizer.zero_grad(set_to_none=True)  # clear gradients for next step
+            lossi.append(loss_accum.item())
+            loss_accum = 0.0
+            macro_batch_count += 1
+
+        if (microstep + 1) % (eval_interval * accum_steps) == 0: # eval_interval in terms of macro batches
+            loss_curve_tr.append(sum(lossi)/len(lossi))
+            lossi = []
+            if config.grad_clipping > 0.0:
+                norm = normi.mean().item()
+            m.eval()
+            with torch.no_grad():
+                lossi_val = []
+                for idx_block, (X_val, Y_val) in enumerate(val_loader):
+                    X_val, Y_val = X_val.to(device, non_blocking=True), Y_val.to(device, non_blocking=True)    
+                    with autocast_ctx():
+                        _, loss = m(X_val, targets=Y_val)  
+                    lossi_val.append(loss.item())
+            loss_val = sum(lossi_val)/len(lossi_val)
+            loss_curve_val.append(loss_val)
+            lossi_val = []
+            m.train()
+
+            # --- end timing ---
+            maybe_sync()
+            dt = time.time() - t0
+            print(f"\nTrained on {(microstep + 1) // accum_steps} (macro)batches: {dt / eval_interval:.2f}s per (macro)batch", flush=True)
+            t0= time.time()
+
+            if config.grad_clipping:
+                print(f"Norm of the gradient is {norm:.5g}. Learning rate is {lr:.5g}. Loss is {loss_val:.5g}.", flush=True)
+            else:
+                print(f"Learning rate is {lr:.5g}. Loss is {loss_val:.5g}.", flush=True)   
+
+            if len(loss_curve_tr) > 1:
+                # Build the plot
+                ax.clear()
+                x_axis = np.arange(1, len(loss_curve_tr)+1) * eval_interval
+                ax.loglog(x_axis, loss_curve_tr, label=f"train, final = {loss_curve_tr[-1]:.4f}")
+                ax.loglog(x_axis, loss_curve_val, label=f"validation, final = {loss_curve_val[-1]:.4f}")
+                ax.set_xlabel(f"Training step")
+                ax.set_ylabel("Loss")
+                ax.legend()
+                # Save first, then show
+                fig.savefig("loss_plot.png", dpi=300, bbox_inches="tight")
     
     to_save = m._orig_mod if hasattr(m, "_orig_mod") else m
     torch.save({
