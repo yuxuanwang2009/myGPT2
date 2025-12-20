@@ -37,7 +37,7 @@ class Config:
     # data
     split: float = 0.9
     max_steps: int = 262144  # how many batches to train for
-    eval_interval: int = 64
+    eval_interval: int = 600
     batch_size: int = 16
     macro_batch_size: int = 512  # for gradient accumulation to simulate larger batch sizes
 
@@ -48,14 +48,14 @@ class Config:
     weight_decay: float = 0.1  # GPT-2 value
     grad_clipping: float = 1.0  # gradient norm clipping
 
+    # reproducibility
+    seed: int = 1337
+
     # tokenizer
     use_tiktoken: bool = True
 
     def __post_init__(self) -> None:
         self.n_ffd_hidden = 4 * self.n_emb
-
-        assert self.max_steps % self.macro_batch_size == 0
-        assert self.max_steps % (self.eval_interval * self.macro_batch_size) == 0
         assert self.macro_batch_size % self.batch_size == 0
     
     @classmethod
@@ -67,12 +67,12 @@ class Config:
             T=64,
             vocab_size=512,
             dropout=0.3,
-            batch_size=32,
+            batch_size=32, # there ust be a bug! simply changing this from 32 to 16 causes a different training dynamic. Investigate.
             macro_batch_size=64,
             bias=False,
             use_tiktoken=False,
-            max_steps=384000, # in terms of macrobatches
-            eval_interval=600, # in terms of macrobatches
+            max_steps=1, # in terms of macrobatches
+            eval_interval=120, # in terms of macrobatches
             warmup_ratio=0.0,
             weight_decay=0.02,
             weight_tying=False,
@@ -107,3 +107,4 @@ weight_decay = cfg.weight_decay
 grad_clipping = cfg.grad_clipping
 
 use_tiktoken = cfg.use_tiktoken
+seed = cfg.seed

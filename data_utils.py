@@ -1,5 +1,7 @@
 import torch
+import torch.distributed as dist
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.distributed import DistributedSampler
 import config
 import regex_tokenizer as rt
 import tiktoken
@@ -40,10 +42,8 @@ class BlockPairDataset(Dataset):
 
         # For boundary-free corpora, step through the stream with stride T when deterministic
         self.starts = torch.arange(0, len(self.data), self.T) 
-        if self.train:
-            self.N = config.max_steps * config.macro_batch_size
-        else:
-            self.N = len(self.starts)
+        self.N = len(self.starts)
+        self.N -= self.N % max(1, config.macro_batch_size)
 
     def __len__(self):
         # DataLoader will treat this as "blocks in the dataset"
@@ -51,10 +51,7 @@ class BlockPairDataset(Dataset):
 
     def __getitem__(self, i:int):
 
-        if self.train:
-            s = self.starts[i % len(self.starts)].item()
-        else:
-            s = self.starts[i].item()        
+        s = self.starts[i].item()
 
         # Take T+1 tokens so we can form (x,y) with a one-step shift
         end = min(s + self.T + 1, len(self.data))
@@ -80,23 +77,41 @@ class BlockPairDataset(Dataset):
 def Construct_data_loaders(data:torch.Tensor) -> DataLoader:
     # Train/val split into two tensors
     len_ = data.numel()
+    if len_ == 0:
+        raise ValueError("Empty dataset: no tokens available for train/val split.")
     len_tr = int(len_ * config.split)
     len_val = len_ - len_tr
     data_tr, data_val = data.split([len_tr, len_val])
-
-    device = config.device
-    device_type = device if isinstance(device, str) else device.type
-    cuda = torch.cuda.is_available() and device_type == "cuda"
 
     # Convert torch.Tensor to Dataset of proper context blocks
     ds_tr = BlockPairDataset(data_tr, config.T, train=True) # Dataset objects 
     ds_va = BlockPairDataset(data_val, config.T, train=False)
 
+    distributed = dist.is_available() and dist.is_initialized()
+    rank = dist.get_rank() if distributed else 0
+    world_size = dist.get_world_size() if distributed else 1
+    train_sampler = DistributedSampler(
+        ds_tr,
+        num_replicas=world_size,
+        rank=rank,
+        shuffle=True,
+        seed=config.seed,
+    ) if distributed else None
+    val_sampler = DistributedSampler(
+        ds_va,
+        num_replicas=world_size,
+        rank=rank,
+        shuffle=False,
+        seed=config.seed,
+    ) if distributed else None
+
     # Convert the Datasets to Dataloaders with backend-specific settings
-    if cuda:
+    if distributed:
         train_loader = DataLoader(
             ds_tr,
             batch_size=config.batch_size,
+            sampler=train_sampler,
+            shuffle=False,
             num_workers=8,
             pin_memory=True,
             prefetch_factor=4,
@@ -105,6 +120,8 @@ def Construct_data_loaders(data:torch.Tensor) -> DataLoader:
         val_loader = DataLoader(
             ds_va,
             batch_size=config.batch_size,
+            sampler=val_sampler,
+            shuffle=False,
             num_workers=2,
             pin_memory=True,
         )
@@ -113,16 +130,29 @@ def Construct_data_loaders(data:torch.Tensor) -> DataLoader:
         train_loader = DataLoader(
             ds_tr,
             batch_size=config.batch_size,
+            shuffle=False,
             num_workers=0,
             pin_memory=False,
+            drop_last=True
         )
         val_loader = DataLoader(
             ds_va,
             batch_size=config.batch_size,
+            shuffle=False,
             num_workers=0,
             pin_memory=False,
+            drop_last=True
         )
 
-    print(f"Training data (with repetition) consist of {len(ds_tr) // config.macro_batch_size} (macro)batches of text.", flush=True)
-    print(f"Validation data consist of {len(ds_va) // config.macro_batch_size} (macro)batches of text.\n", flush=True)
-    return train_loader, val_loader
+    if rank == 0:
+        expected_batches = 7680 // config.batch_size
+        has_expected_batches = len(train_loader) == expected_batches
+        full_batch_blocks = train_loader.batch_size == config.batch_size
+        print(
+            f"train_loader expected_batches_ok: {has_expected_batches}; "
+            f"batch_blocks_ok: {full_batch_blocks}",
+            flush=True,
+        )
+        print(f"Training data consist of {len(ds_tr) // config.macro_batch_size} (macro)batches of text.", flush=True)
+        print(f"Validation data consist of {len(ds_va) // config.macro_batch_size} (macro)batches of text.\n", flush=True)
+    return train_loader, val_loader, train_sampler

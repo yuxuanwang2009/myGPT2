@@ -6,7 +6,7 @@ from data_utils import ttos, stot
 from model import GPTLanguageModel
 
 # Utility functions
-def load_pretrained(checkpoint_path: str = "checkpoint.pt", training = False) -> GPTLanguageModel:
+def Load_pretrained(checkpoint_path: str = "checkpoint.pt", training = False) -> GPTLanguageModel:
     model = GPTLanguageModel(cfg=config.cfg).to(config.device)
     ckpt = torch.load(checkpoint_path, map_location=config.device)    
     model.load_state_dict(ckpt["model"])
@@ -39,7 +39,7 @@ def main():
     )
     args = parser.parse_args()
 
-    model = load_pretrained("checkpoint.pt")
+    model = Load_pretrained("checkpoint.pt")
     # model = GPTLanguageModel(cfg=config.cfg).to(config.device)
     # model = GPTLanguageModel.load_gpt2_from_hf().to(config.device) # for testing imported GPT-2, temporary
     
