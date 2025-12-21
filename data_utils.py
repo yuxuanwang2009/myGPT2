@@ -130,10 +130,9 @@ def Construct_data_loaders(data:torch.Tensor) -> DataLoader:
         train_loader = DataLoader(
             ds_tr,
             batch_size=config.batch_size,
-            shuffle=False,
+            shuffle=True,
             num_workers=0,
-            pin_memory=False,
-            drop_last=True
+            pin_memory=False        
         )
         val_loader = DataLoader(
             ds_va,
@@ -141,7 +140,6 @@ def Construct_data_loaders(data:torch.Tensor) -> DataLoader:
             shuffle=False,
             num_workers=0,
             pin_memory=False,
-            drop_last=True
         )
 
     if rank == 0:

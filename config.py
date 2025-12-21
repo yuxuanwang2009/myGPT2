@@ -42,7 +42,7 @@ class Config:
 
     # optimizer
     lr: float = 1e-4
-    min_lr: float = 1e-6
+    min_lr: float = 5e-6
     warmup_ratio: float = 0.03
     weight_decay: float = 0.1  # GPT-2 value
     grad_clipping: float = 1.0  # gradient norm clipping
@@ -70,8 +70,8 @@ class Config:
             macro_batch_size=64,
             bias=False,
             use_tiktoken=False,
-            max_steps=30000, # in terms of macrobatches
-            eval_interval=600, # in terms of macrobatches
+            max_steps=100000, # in terms of macrobatches
+            eval_interval=6000, # in terms of macrobatches
             warmup_ratio=0.0,
             weight_decay=0.02,
             weight_tying=False,
