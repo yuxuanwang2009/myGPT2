@@ -79,7 +79,7 @@ python run_train.py --resume
 
 The training loop:
 
-- Uses mixed precision (`autocast`) on CUDA/MPS. Note: PyTorch's MPS support is questionable and suffers from nondeterministic behavior.
+- Uses mixed precision (`autocast`) on CUDA/MPS.
 - Accumulates gradients to simulate `macro_batch_size`.
 - Clips gradients if `grad_clipping > 0`.
 - Evaluates every `eval_interval * accum_steps` micro‑batches.
@@ -110,5 +110,4 @@ python run_pretrained.py --prompt
 
 ## Notes
 
-- Training repeats blocks by modulo indexing; if you want a single‑pass epoch, change `BlockPairDataset.__len__` to `len(starts)` for training.
-- Validation batch size is currently set to the same as training; adjust in `data_utils.py` if you want a smaller eval batch.
+- PyTorch's MPS support is questionable and suffers from nondeterministic behavior.
