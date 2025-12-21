@@ -1,6 +1,6 @@
-# myGPT2 (main branch)
+# myGPT2
 
-Minimal GPT‑2‑style language model and training pipeline for experimenting with transformer internals and training loops.
+Minimal GPT‑2‑style language model with custom tokenizer and training pipeline for experimenting with transformer internals and training loops.
 
 ## Project layout
 
@@ -79,7 +79,7 @@ python run_train.py --resume
 
 The training loop:
 
-- Uses mixed precision (`autocast`) on CUDA/MPS.
+- Uses mixed precision (`autocast`) on CUDA/MPS. Note: PyTorch's MPS support is questionable and suffers from nondeterministic behavior.
 - Accumulates gradients to simulate `macro_batch_size`.
 - Clips gradients if `grad_clipping > 0`.
 - Evaluates every `eval_interval * accum_steps` micro‑batches.
