@@ -67,6 +67,11 @@ Run training:
 python run_train.py
 ```
 
+Multi-GPU with DDP:
+```
+torchrun --nproc_per_node=4 run_train.py
+```
+
 Resume from a checkpoint:
 ```
 python run_train.py --resume
