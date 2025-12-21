@@ -67,7 +67,8 @@ def main():
         model = GPTLanguageModel(cfg=config.cfg).to(device) 
         optimizer = Construct_optimizer(model, config.lr, config.weight_decay, device) # need to do this before the model becomes a DDP model
     else:
-        model, optimizer = Load_pretrained("checkpoint.pt", training=True, device=device) # TODO: need to refactor load_pretrained to pass device for DDP
+        model, optimizer = Load_pretrained("checkpoint.pt", training=True, device=device) 
+        print("Model loaded from checkpoint. You will have to pick the proper lr schedule.\n")
     
     # 2. Wrap for DDP and compile (CUDA only); drop max-autotune to avoid Triton benchmark spam
     if distributed:

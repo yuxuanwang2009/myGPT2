@@ -6,9 +6,9 @@ from data_utils import ttos, stot
 from model import GPTLanguageModel
 
 # Utility functions
-def Load_pretrained(checkpoint_path: str = "checkpoint.pt", training = False) -> GPTLanguageModel:
-    model = GPTLanguageModel(cfg=config.cfg).to(config.device)
-    ckpt = torch.load(checkpoint_path, map_location=config.device)    
+def Load_pretrained(checkpoint_path: str = "checkpoint.pt", training = False, device = config.device) -> GPTLanguageModel:
+    model = GPTLanguageModel(cfg=config.cfg).to(device)
+    ckpt = torch.load(checkpoint_path, map_location=device)    
     model.load_state_dict(ckpt["model"])
     if training == True:
         optimizer = torch.optim.AdamW(model.parameters(), 0)
