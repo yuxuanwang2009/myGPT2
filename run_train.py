@@ -41,16 +41,16 @@ os.environ["TORCHINDUCTOR_VERBOSE"] = "0"
 logging.getLogger("torch._inductor").setLevel(logging.CRITICAL)
 
 def set_reproducible(seed: int, rank: int) -> None:
-    # seed = int(seed) + int(rank)
-    # random.seed(seed)
-    # np.random.seed(seed)
-    # torch.manual_seed(seed)
-    # if torch.cuda.is_available():
-    #     torch.cuda.manual_seed(seed)
-    #     torch.cuda.manual_seed_all(seed)
-    # torch.backends.cudnn.deterministic = True
-    # torch.backends.cudnn.benchmark = False
-    torch.use_deterministic_algorithms(True, warn_only=True) #TODO: investigate why this single line improves training stability
+    seed = int(seed) + int(rank)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(True, warn_only=True) 
 
 # Prefer precision and run-to-run stability over speed.
 if device.type == "cuda":
@@ -66,6 +66,7 @@ def main():
     parser.add_argument("--resume", "-r",  action="store_true", help="Resume training from checkpoint.pt")
     args = parser.parse_args()
 
+    # Very important on mps, otherwise the nondeterminism affects training performance
     set_reproducible(config.seed, ddp_rank)
 
     # 1. Construct the model

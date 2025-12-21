@@ -148,11 +148,6 @@ def Construct_data_loaders(data:torch.Tensor) -> DataLoader:
         expected_batches = 7680 // config.batch_size
         has_expected_batches = len(train_loader) == expected_batches
         full_batch_blocks = train_loader.batch_size == config.batch_size
-        print(
-            f"train_loader expected_batches_ok: {has_expected_batches}; "
-            f"batch_blocks_ok: {full_batch_blocks}",
-            flush=True,
-        )
-        print(f"Training data consist of {len(ds_tr) // config.macro_batch_size} (macro)batches of text.", flush=True)
-        print(f"Validation data consist of {len(ds_va) // config.macro_batch_size} (macro)batches of text.\n", flush=True)
+        # print(f"Training data consist of {len(ds_tr) // config.macro_batch_size} (macro)batches of text.", flush=True)
+        # print(f"Validation data consist of {len(ds_va) // config.macro_batch_size} (macro)batches of text.\n", flush=True)
     return train_loader, val_loader, train_sampler

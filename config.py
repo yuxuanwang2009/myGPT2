@@ -19,7 +19,6 @@ def _default_device() -> torch.device:
 class Config:
     """Training/model configuration. Can construct other presets.
     """
-
     # model
     n_emb: int = 768
     T: int = 1024  # context size
@@ -71,8 +70,8 @@ class Config:
             macro_batch_size=64,
             bias=False,
             use_tiktoken=False,
-            max_steps=1, # in terms of macrobatches
-            eval_interval=120, # in terms of macrobatches
+            max_steps=30000, # in terms of macrobatches
+            eval_interval=600, # in terms of macrobatches
             warmup_ratio=0.0,
             weight_decay=0.02,
             weight_tying=False,

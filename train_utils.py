@@ -47,18 +47,22 @@ def _get_cos_lr(step: int, max_steps: int, max_lr: float, min_lr: float, warmup_
     return min_lr + (max_lr - min_lr) * cosine
 
 
-def Train(m, train_loader: DataLoader, val_loader: DataLoader, optimizer, eval_interval, device):
+def Train(
+        m, train_loader: DataLoader,
+        val_loader: DataLoader,
+        optimizer: torch.optim.Optimizer,
+        eval_interval: int,
+        device: torch.device
+    ):
     m.train()
     for p in m.parameters():
         p.requires_grad = True 
 
-    has_cuda = torch.cuda.is_available() and device.type == "cuda"
-    has_mps = torch.backends.mps.is_available() and device.type == "mps"
-
-    if has_cuda:
+    if device.type == "cuda":
         autocast_ctx = lambda: torch.autocast(device_type="cuda", dtype=torch.bfloat16)
         maybe_sync = torch.cuda.synchronize
-    elif has_mps:
+    elif device.type == "mps":
+        # Careful! autocast on mps has non-determinism problem and can give incorrect loss value at the zeroth step TODO: investigate
         autocast_ctx = lambda: torch.autocast(device_type="mps", dtype=torch.float16)
         maybe_sync = torch.mps.synchronize
     else:
