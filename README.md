@@ -1,6 +1,6 @@
-# myGPT2 (main branch)
+# myGPT2
 
-Minimal GPT‑2‑style language model and training pipeline for experimenting with transformer internals and training loops.
+Minimal GPT‑2‑style language model with custom tokenizer and training pipeline for experimenting with transformer internals and training loops.
 
 ## Project layout
 
@@ -110,5 +110,4 @@ python run_pretrained.py --prompt
 
 ## Notes
 
-- Training repeats blocks by modulo indexing; if you want a single‑pass epoch, change `BlockPairDataset.__len__` to `len(starts)` for training.
-- Validation batch size is currently set to the same as training; adjust in `data_utils.py` if you want a smaller eval batch.
+- PyTorch's MPS support is questionable and suffers from nondeterministic behavior.
