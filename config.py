@@ -42,10 +42,13 @@ class Config:
 
     # optimizer
     lr: float = 1e-4
-    min_lr: float = 5e-6
+    min_lr: float = 2e-6
     warmup_ratio: float = 0.03
     weight_decay: float = 0.1  # GPT-2 value
     grad_clipping: float = 1.0  # gradient norm clipping
+
+    # lr scheduler
+    scheduler: str = "plateau"  # "cosine" or "plateau"
 
     # reproducibility
     seed: int = 1337
@@ -66,16 +69,16 @@ class Config:
             T=64,
             vocab_size=512,
             dropout=0.3,
-            batch_size=32, # there ust be a bug! simply changing this from 32 to 16 causes a different training dynamic. Investigate.
+            batch_size=32,
             macro_batch_size=64,
             bias=False,
             use_tiktoken=False,
-            max_steps=100000, # in terms of macrobatches
-            eval_interval=6000, # in terms of macrobatches
+            max_steps= 1e12,#100000, # in terms of macrobatches
+            eval_interval=600, # in terms of macrobatches
             warmup_ratio=0.0,
             weight_decay=0.02,
             weight_tying=False,
-            grad_clipping=2.5
+            grad_clipping=3.0
         )
 
 cfg = Config().small()
@@ -104,6 +107,8 @@ min_lr = cfg.min_lr
 warmup_ratio = cfg.warmup_ratio
 weight_decay = cfg.weight_decay
 grad_clipping = cfg.grad_clipping
+
+scheduler = cfg.scheduler
 
 use_tiktoken = cfg.use_tiktoken
 seed = cfg.seed

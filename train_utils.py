@@ -47,13 +47,32 @@ def _get_cos_lr(step: int, max_steps: int, max_lr: float, min_lr: float, warmup_
     cosine = 0.5 * (1.0 + math.cos(math.pi * decay_frac))
     return min_lr + (max_lr - min_lr) * cosine
 
+def _get_plateau_lr(curr_lr: float,
+                    backtrack_ratio: float,
+                    lr_reduction: float,
+                    trigger_ratio: float,
+                    giveup_ratio: float,
+                    min_lr: float,
+                    loss_curve_val: list,
+                    ) -> float:
+    if len(loss_curve_val) <= 1:
+        return curr_lr
+    checkpoint = max(0, int(backtrack_ratio * len(loss_curve_val)))
+    ratio = loss_curve_val[-1] / loss_curve_val[checkpoint - 1]
+    if ratio < trigger_ratio:
+        return curr_lr
+    elif curr_lr * lr_reduction >= min_lr and ratio < giveup_ratio:
+        return curr_lr * lr_reduction
+    else:
+        # print(f"ratio = {ratio:.6g}, lr = {curr_lr:.6g}, stopping training.", flush=True)
+        return 0.0
 
 def _ddp_mean(value: float) -> float:
     if not (dist.is_available() and dist.is_initialized()):
         return value
     t = torch.tensor([value], device="cuda" if torch.cuda.is_available() else "cpu")
     dist.all_reduce(t, op=dist.ReduceOp.AVG)
-    return t
+    return t.item()
 
 
 def Train(
@@ -70,7 +89,7 @@ def Train(
     distributed = dist.is_available() and dist.is_initialized()
     rank = dist.get_rank() if distributed else 0
     master_process = rank == 0
-    world_size = dist.get_world_size if distributed else 1
+    world_size = dist.get_world_size() if distributed else 1
     
 
     if device.type == "cuda":
@@ -97,13 +116,13 @@ def Train(
     normi = []
     accum_steps_all = config.macro_batch_size // config.batch_size # gradient accumulation steps
     assert accum_steps_all % world_size == 0
-    accum_steps = accum_steps_all % world_size
+    accum_steps = accum_steps_all // world_size
     loss_accum = 0.0
     macro_batch_count = 0
     micro_batch_count = 0
     epoch_idx = 0
 
-    while macro_batch_count < config.max_steps:
+    while macro_batch_count < config.max_steps and lr != 0.0:
         if hasattr(getattr(train_loader, "sampler", None), "set_epoch"):
             train_loader.sampler.set_epoch(epoch_idx)
 
@@ -121,11 +140,8 @@ def Train(
                         loss.backward() # no need to sync during the accumulation process
                 else:
                     loss.backward() # recommendation by PyTorch, stay outside autocast.
-            else:
+            else: # time for a macrostep
                 loss.backward()
-                lr = _get_cos_lr(macro_batch_count, config.max_steps, max_lr, config.min_lr, config.warmup_ratio)
-                for g in optimizer.param_groups:
-                    g["lr"] = lr
                 if config.grad_clipping > 0.0: # gradient norm clipping
                     normi = torch.nn.utils.clip_grad_norm_(m.parameters(), config.grad_clipping)  
                 optimizer.step()                       # optimizer update
@@ -180,6 +196,31 @@ def Train(
                             ax.legend()
                             # Save first, then show
                             fig.savefig("loss_plot.png", dpi=300, bbox_inches="tight")
+
+                    # Adjust learning rate
+                        if config.scheduler == "cosine":
+                            # cosine lr schedule
+                            lr = _get_cos_lr(macro_batch_count, config.max_steps, max_lr, config.min_lr, config.warmup_ratio)
+                        elif config.scheduler == "plateau":
+                            # plateau lr schedule
+                            if master_process:
+                                lr = _get_plateau_lr(curr_lr=lr,
+                                                    backtrack_ratio=0.8,
+                                                    lr_reduction=0.75,
+                                                    trigger_ratio=0.992,
+                                                    giveup_ratio=0.998,
+                                                    loss_curve_val=loss_curve_val,
+                                                    min_lr=config.min_lr
+                                                    )
+                            lr_tensor = torch.tensor([lr], device=device)
+                            if distributed:
+                                dist.broadcast(lr_tensor, src=0)
+                            lr = lr_tensor.item()
+                        else: 
+                            raise ValueError(f"Unknown scheduler {config.scheduler}.")
+
+                        for g in optimizer.param_groups:
+                            g["lr"] = lr
         epoch_idx += 1
 
     if master_process:
