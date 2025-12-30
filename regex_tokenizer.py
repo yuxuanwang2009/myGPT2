@@ -24,7 +24,7 @@ class RegexTokenizer:
         self.merges = {} if merges is None else merges
         self.vocab = {i: bytes([i]) for i in range(256)} if vocab is None else vocab
 
-    def merge(self, ids, pair, new_token, byte_shuffle=None):
+    def _merge(self, ids, pair, new_token, byte_shuffle=None):
         """Replace all non-overlapping occurrences of pair with new_token."""
         i = 0
         out_ids = []
@@ -44,7 +44,7 @@ class RegexTokenizer:
                 if id<256:
                     ids[i] = byte_shuffle[id]
         for pair, new_token in self.merges.items():
-            ids = self.merge(ids, pair, new_token, byte_shuffle)                
+            ids = self._merge(ids, pair, new_token, byte_shuffle)                
         return ids
 
     @classmethod
@@ -79,11 +79,11 @@ class RegexTokenizer:
                         f"{render_token(next_pair[1:])} -> {render_token([new_token])} "
                         f"had {counts[next_pair]} occurrences"
                     )
-            chunk_ids = [tokenizer.merge(ids, next_pair, new_token) for ids in chunk_ids]
-        tokenizer.save(path)
-        return tokenizer
+            chunk_ids = [tokenizer._merge(ids, next_pair, new_token) for ids in chunk_ids]
+        tokenizer.save(path) # for future loading
+        return tokenizer # ready to use after training
 
-    def encode(self, text, byte_shuffle=None):
+    def encode(self, text, byte_shuffle=None, allowed_special=None):
         chunks = re.findall(self.compiled_pattern, text)
         ids = []
         for chunk in chunks:

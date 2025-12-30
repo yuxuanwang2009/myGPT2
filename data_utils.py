@@ -14,7 +14,7 @@ else:
 
 # tokenizer encoding: from a string to a tensor of tokens
 def stot(s: str) -> torch.Tensor:
-    ids = tok.encode(s)
+    ids = tok.encode(s, allowed_special={"<|endoftext|>"})
     return torch.tensor(ids, dtype=torch.long)
 
 # tokenizer encoding: from a tensor of tokens to a string
