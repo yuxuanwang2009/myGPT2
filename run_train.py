@@ -32,7 +32,8 @@ def main():
 
     # set up DDP (distributed data parallel).
     # torchrun command sets the env variables RANK,LOCAL_RANK, and WORLD_SIZE
-    distributed = dist.is_available() and dist.is_initialized()
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    distributed = dist.is_available() and world_size > 1
     if distributed:
         # use of DDP atm demands CUDA, we set the device appropriately according to rank
         assert torch.cuda.is_available(),"for now i think we need CUDA for DDP"
