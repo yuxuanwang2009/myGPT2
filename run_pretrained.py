@@ -51,7 +51,7 @@ def main():
                 break
             prompt = stot(user_prompt).view(1, -1)
         else:
-            prompt = stot("I am an AI helper,").view(1, -1)
+            prompt = stot("").view(1, -1)
 
         prompt = prompt.to(config.device)
         # torch.manual_seed(42)

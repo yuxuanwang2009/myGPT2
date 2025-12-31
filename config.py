@@ -63,13 +63,13 @@ class Config:
     @classmethod
     def small(cls) -> "Config":
         return cls(
-            n_emb=120,
+            n_emb=144,
             n_layers=6,
             n_heads=6,
-            T=64,
-            vocab_size=512,
+            T=48,
+            vocab_size=2048,
             dropout=0.3,
-            batch_size=32,
+            batch_size=64,
             macro_batch_size=64,
             bias=False,
             use_tiktoken=False,
