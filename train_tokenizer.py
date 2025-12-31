@@ -4,9 +4,8 @@ import regex_tokenizer as rt
 text = open("Dataset/tinyshakespeare.txt", "r", encoding="utf-8").read()
 text_tok_training = text
 
-tok = rt.RegexTokenizer.train(text_tok_training, config.vocab_size, path="tokenizer.json", verbose=True)
-
-# tok = rt.RegexTokenizer.load("tokenizer.json")
+# Train a tokenizer from scratch, allowing special token <|endoftext|>.
+tok = rt.RegexTokenizer.train(text_tok_training, config.vocab_size, path="tokenizer.json", verbose=True, special_tokens=["<|endoftext|>"])
 
 def _token_per_word(text: str, tokenizer: rt.RegexTokenizer) -> float:
     """Compute average tokens per whitespace-delimited word for a text sample."""
@@ -16,8 +15,5 @@ def _token_per_word(text: str, tokenizer: rt.RegexTokenizer) -> float:
     token_count = len(tokenizer.encode(text))
     return token_count / word_count
 
-
-# train_tpw = _token_per_word(text_tok_training, tok)
-full_tpw = _token_per_word(text, tok)
-# print(f"Tokens/word on training slice: {train_tpw:.3f}")
-print(f"Tokens/word on full corpus:   {full_tpw:.3f}")
+train_tpw = _token_per_word(text_tok_training, tok)
+print(f"Tokens/word on training slice: {train_tpw:.3f}")

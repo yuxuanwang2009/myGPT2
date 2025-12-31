@@ -12,20 +12,27 @@ Quick usage:
 
 import regex as re
 import json
+import heapq
+from tokenizer_utils import Build_linked_list
 
 
 GPT4_SPLIT_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"""
 
 
 class RegexTokenizer:
-    def __init__(self, merges=None, vocab=None, pattern=None):
+    def __init__(self, merges=None, vocab=None, pattern=None, special_tokens=None):
         self.pattern = GPT4_SPLIT_PATTERN if pattern is None else pattern
         self.compiled_pattern = re.compile(self.pattern)
         self.merges = {} if merges is None else merges
         self.vocab = {i: bytes([i]) for i in range(256)} if vocab is None else vocab
+        self.special_token_to_id = {} if special_tokens is None else special_tokens
 
     def _merge(self, ids, pair, new_token, byte_shuffle=None):
-        """Replace all non-overlapping occurrences of pair with new_token."""
+        """
+        Replace all non-overlapping occurrences of pair with new_token.
+        Needed for training, but not efficient for encoding large texts.
+        We will use a min-heap based priority queue approach for efficient encoding.
+        """
         i = 0
         out_ids = []
         while i < len(ids):
@@ -37,23 +44,16 @@ class RegexTokenizer:
                 i += 1
         return out_ids
 
-    def _encode_chunk(self, chunk_bytes, byte_shuffle=None):
-        ids = list(chunk_bytes)
-        if byte_shuffle is not None:
-            for i, id in enumerate(ids):
-                if id<256:
-                    ids[i] = byte_shuffle[id]
-        for pair, new_token in self.merges.items():
-            ids = self._merge(ids, pair, new_token, byte_shuffle)                
-        return ids
-
     @classmethod
-    def train(cls, text, vocab_size, path, special_characters: list[str] = None, verbose=False):
-        assert vocab_size >= 256
-        num_merges = vocab_size - 256
+    def train(cls, text, vocab_size, path = None, special_tokens: list[str] = None, verbose=False):
+        if special_tokens is None:
+            special_tokens = []
+
+        assert vocab_size >= 256 + len(special_tokens)
+        num_merges = vocab_size - 256 - len(special_tokens)
 
         tokenizer = cls()
-        chunks = re.findall(tokenizer.compiled_pattern, text)
+        chunks = re.findall(tokenizer.compiled_pattern, text) # chunks is a list of strings
         chunk_ids = [list(chunk.encode("utf-8")) for chunk in chunks] # list converts bytes to a list of ints
 
         for step in range(num_merges):
@@ -78,16 +78,108 @@ class RegexTokenizer:
                         f"merge {step+1}/{num_merges}: {render_token(next_pair[:1])}, "
                         f"{render_token(next_pair[1:])} -> {render_token([new_token])} "
                         f"had {counts[next_pair]} occurrences"
-                    )
+            )
             chunk_ids = [tokenizer._merge(ids, next_pair, new_token) for ids in chunk_ids]
-        tokenizer.save(path) # for future loading
+        if path is not None:
+            tokenizer.save(path) # for future loading
+
+        # Reserve the highest token IDs for special tokens
+        next_token_id = 256 + num_merges
+        for tok in special_tokens:
+            tokenizer.special_token_to_id[tok] = next_token_id
+            tokenizer.vocab[next_token_id] = tok.encode("utf-8")
+            next_token_id += 1
         return tokenizer # ready to use after training
 
-    def encode(self, text, byte_shuffle=None, allowed_special=None):
-        chunks = re.findall(self.compiled_pattern, text)
+    def _encode_chunk(self, chunk, byte_shuffle=None):
+        ids = list(chunk.encode("utf-8"))
+        if byte_shuffle is not None:
+            for i, id_val in enumerate(ids):
+                if id_val < 256:
+                    ids[i] = byte_shuffle[id_val]
+        for pair, new_token in self.merges.items():
+            ids = self._merge(ids, pair, new_token, byte_shuffle)
+        return ids
+
+    def _encode_chunk_fast(self, chunk, byte_shuffle=None):
+        # Before we begin, create a double-linked list (DLL) from the chunk, each element of the list is a Node object with prev, next, value attributes.
+        dll = Build_linked_list(chunk, byte_shuffle)
+        
+        # First, create a priority list (min-heap) by scanning the DLL:
+        heap = []
+        for node_a in dll[:-1]:
+            node_b = node_a.next
+            if (node_a.value, node_b.value) in self.merges:
+                new_id = self.merges[(node_a.value, node_b.value)]
+                heapq.heappush(heap, (new_id, id(node_a), node_a, node_b))
+        
+        # Next, update the dll and min-heap until heap is empty
+        while heap:
+            new_id, _, node_a, node_b = heapq.heappop(heap)
+            if node_a.next != node_b or node_b.prev != node_a:
+                continue  # stale entry if no longer adjacent
+            if self.merges.get((node_a.value, node_b.value), None) != new_id:
+                continue  # stale entry even if the node values changed
+            # Merge node_a and node_b
+            node_a.value = new_id
+            node_a.next = node_b.next
+            if node_b.next is not None:
+                node_b.next.prev = node_a
+            node_b.prev = None # detach node_b
+            node_b.next = None # detach node_b
+            # Check for new merge opportunities around the new node_a
+            if node_a.next is not None:
+                if (node_a.value, node_a.next.value) in self.merges:
+                    new_id = self.merges[(node_a.value, node_a.next.value)]
+                    heapq.heappush(heap, (new_id, id(node_a), node_a, node_a.next))
+            if node_a.prev is not None:
+                if (node_a.prev.value, node_a.value) in self.merges:
+                    new_id = self.merges[(node_a.prev.value, node_a.value)]
+                    heapq.heappush(heap, (new_id, id(node_a.prev), node_a.prev, node_a))
+        # Finally, we extract the IDs from the modified DLL:
+        ids = [dll[0].value]
+        for node in dll[:-1]:
+            if node.next is not None:
+                ids.append(node.next.value)
+        return ids
+
+    def _split_with_special(self, text, allowed_special):
+        """
+        Split text into chunks using the tokenizer regex, but preserve any
+        allowed special tokens as standalone chunks so they are not broken up.
+        """
+        if not allowed_special:
+            return self.compiled_pattern.findall(text)
+
+        # Normalize input: sets/lists are fine; strings should be treated as one token
+        if isinstance(allowed_special, str):
+            allowed = {allowed_special}
+        else:
+            allowed = set(allowed_special)
+
+        special_regex = re.compile("|".join(re.escape(tok) for tok in sorted(allowed, key=len, reverse=True)))
+        chunks = []
+        cursor = 0
+        for match in special_regex.finditer(text):
+            if match.start() > cursor:
+                chunks.extend(self.compiled_pattern.findall(text[cursor:match.start()]))
+            chunks.append(match.group(0))
+            cursor = match.end()
+        if cursor < len(text):
+            chunks.extend(self.compiled_pattern.findall(text[cursor:]))
+        return [c for c in chunks if c]
+
+    def encode(self, text, byte_shuffle=None, allowed_special=None, fast=True):
+        chunks = self._split_with_special(text, allowed_special)
         ids = []
         for chunk in chunks:
-            ids.extend(self._encode_chunk(chunk.encode("utf-8"), byte_shuffle))
+            if chunk in self.special_token_to_id:
+                ids.append(self.special_token_to_id[chunk])
+                continue
+            if fast:
+                ids.extend(self._encode_chunk_fast(chunk, byte_shuffle))
+            else:
+                ids.extend(self._encode_chunk(chunk, byte_shuffle))
         return ids
 
     def decode(self, ids):
@@ -96,7 +188,11 @@ class RegexTokenizer:
 
     def save(self, path):
         merges_serialized = [(a, b, tok) for (a, b), tok in self.merges.items()]
-        state = {"pattern": self.pattern, "merges": merges_serialized}
+        state = {
+            "pattern": self.pattern,
+            "merges": merges_serialized,
+            "special_tokens": list(self.special_token_to_id.items()),
+        }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(state, f)
 
@@ -106,7 +202,15 @@ class RegexTokenizer:
             state = json.load(f)
         merges = {}
         vocab = {i: bytes([i]) for i in range(256)}
+        special_token_to_id = dict(state.get("special_tokens", []))
         for a, b, tok in state["merges"]:
             merges[(a, b)] = tok
             vocab[tok] = vocab[a] + vocab[b]
-        return cls(merges=merges, vocab=vocab, pattern=state.get("pattern", GPT4_SPLIT_PATTERN))
+        for tok_str, tok_id in special_token_to_id.items():
+            vocab[tok_id] = tok_str.encode("utf-8")
+        return cls(
+            merges=merges,
+            vocab=vocab,
+            pattern=state.get("pattern", GPT4_SPLIT_PATTERN),
+            special_tokens=special_token_to_id,
+        )
