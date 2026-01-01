@@ -7,7 +7,7 @@ import torch
 import config
 from model import GPTLanguageModel
 from train_utils import Train, Construct_optimizer
-from data_utils import Construct_data_loaders
+from data_utils import Build_datasets, Construct_data_loaders
 from run_pretrained import Load_pretrained
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
@@ -78,10 +78,8 @@ def main():
         model = torch.compile(model)
 
     # 3. Build dataloaders
-    from import_data import data
-    train_loader, val_loader, train_sampler = Construct_data_loaders(data)
-    if train_sampler is not None:
-        train_sampler.set_epoch(0)
+    train_ds, val_ds = Build_datasets(ddp_rank, world_size)
+    train_loader, val_loader, _ = Construct_data_loaders((train_ds, val_ds))
 
     # 4. Train and save weights
     Train(model, train_loader, val_loader, optimizer, config.eval_interval, device)

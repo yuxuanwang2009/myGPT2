@@ -27,6 +27,8 @@ def Construct_optimizer(model, lr, weight_decay, device: torch.device):
             {"params": decay, "weight_decay":weight_decay},
             {"params": no_decay, "weight_decay": 0.0},
         ],
+        betas=(0.9, 0.95),
+        eps=1e-8,
         lr=lr,
         fused=use_fused,
     )
@@ -57,15 +59,14 @@ def _get_plateau_lr(curr_lr: float,
                     ) -> float:
     if len(loss_curve_val) <= 1:
         return curr_lr
-    checkpoint = max(0, int(backtrack_ratio * len(loss_curve_val)))
-    ratio = loss_curve_val[-1] / loss_curve_val[checkpoint - 1]
-    if ratio < trigger_ratio:
-        return curr_lr
-    elif curr_lr * lr_reduction >= min_lr and ratio < giveup_ratio:
+    window = min(10, len(loss_curve_val))
+    recent = loss_curve_val[-window:]
+    best_recent = min(recent)
+    # ratio > 1 means latest is worse than best_recent; 1.0 means tied
+    ratio = best_recent / loss_curve_val[-1]
+    if ratio < trigger_ratio and curr_lr * lr_reduction >= min_lr:
         return curr_lr * lr_reduction
-    else:
-        # print(f"ratio = {ratio:.6g}, lr = {curr_lr:.6g}, stopping training.", flush=True)
-        return 0.0
+    return curr_lr
 
 def _ddp_mean(value: float) -> float:
     if not (dist.is_available() and dist.is_initialized()):
@@ -123,9 +124,8 @@ def Train(
     epoch_idx = 0
 
     while macro_batch_count < config.max_steps and lr != 0.0:
-        if hasattr(getattr(train_loader, "sampler", None), "set_epoch"):
-            train_loader.sampler.set_epoch(epoch_idx)
-
+        if hasattr(train_loader, "dataset") and hasattr(train_loader.dataset, "set_epoch"):
+            train_loader.dataset.set_epoch(epoch_idx)
         for (X, Y) in train_loader:
             X, Y = X.to(device, non_blocking=True), Y.to(device, non_blocking=True)
             with autocast_ctx():
@@ -159,19 +159,19 @@ def Train(
                     lossi = []
                     if config.grad_clipping > 0.0:
                         norm = _ddp_mean(normi.mean().item())
-                    m.eval()
-                    with torch.no_grad():
+                    if master_process:
+                        m.eval()
+                        with torch.no_grad():
+                            lossi_val = []
+                            for idx_block, (X_val, Y_val) in enumerate(val_loader):
+                                X_val, Y_val = X_val.to(device, non_blocking=True), Y_val.to(device, non_blocking=True)    
+                                with autocast_ctx():
+                                    _, loss = m(X_val, targets=Y_val)  
+                                lossi_val.append(loss.item())
+                        loss_val = sum(lossi_val) / len(lossi_val)
+                        loss_curve_val.append(loss_val)
                         lossi_val = []
-                        for idx_block, (X_val, Y_val) in enumerate(val_loader):
-                            X_val, Y_val = X_val.to(device, non_blocking=True), Y_val.to(device, non_blocking=True)    
-                            with autocast_ctx():
-                                _, loss = m(X_val, targets=Y_val)  
-                            lossi_val.append(loss.item())
-                    loss_val = sum(lossi_val) / len(lossi_val)
-                    loss_val = _ddp_mean(loss_val)
-                    loss_curve_val.append(loss_val) if master_process else None
-                    lossi_val = []
-                    m.train()
+                        m.train()
 
                     # --- end timing ---
                     maybe_sync()
@@ -218,7 +218,8 @@ def Train(
                             lr = lr_tensor.item()
                         else: 
                             raise ValueError(f"Unknown scheduler {config.scheduler}.")
-
+                        if lr == 0:
+                            break
                         for g in optimizer.param_groups:
                             g["lr"] = lr
         epoch_idx += 1

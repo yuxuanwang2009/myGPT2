@@ -74,21 +74,21 @@ class RegexTokenizer:
                 def render_token(token_ids):
                     return tokenizer.decode(token_ids).translate(translation_table)
 
-                print(
-                        f"merge {step+1}/{num_merges}: {render_token(next_pair[:1])}, "
-                        f"{render_token(next_pair[1:])} -> {render_token([new_token])} "
-                        f"had {counts[next_pair]} occurrences"
-            )
+                left = render_token(next_pair[:1])
+                right = render_token(next_pair[1:])
+                merged = render_token([new_token])
+                count = counts[next_pair]
+                print(f"merge {step+1:4d}/{num_merges:<4d} : {left:<10} {right:<10} -> {merged:<12} | {count:>8} occurrences")
             chunk_ids = [tokenizer._merge(ids, next_pair, new_token) for ids in chunk_ids]
-        if path is not None:
-            tokenizer.save(path) # for future loading
-
         # Reserve the highest token IDs for special tokens
         next_token_id = 256 + num_merges
         for tok in special_tokens:
             tokenizer.special_token_to_id[tok] = next_token_id
             tokenizer.vocab[next_token_id] = tok.encode("utf-8")
             next_token_id += 1
+
+        if path is not None:
+            tokenizer.save(path) # for future loading
         return tokenizer # ready to use after training
 
     def _encode_chunk(self, chunk, byte_shuffle=None):

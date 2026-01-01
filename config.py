@@ -34,21 +34,21 @@ class Config:
     n_ffd_hidden: int = field(init=False)
 
     # data
-    split: float = 0.9
-    max_steps: int = 262144  # how many batches to train for
+    split: float = 0.999
+    max_steps: int = 19073  # how many batches to train for
     eval_interval: int = 600
-    batch_size: int = 16
+    batch_size: int = 64
     macro_batch_size: int = 512  # for gradient accumulation to simulate larger batch sizes
 
     # optimizer
-    lr: float = 1e-4
-    min_lr: float = 2e-6
+    lr: float = 6e-4
+    min_lr: float = 0.1 * lr
     warmup_ratio: float = 0.03
     weight_decay: float = 0.1  # GPT-2 value
     grad_clipping: float = 1.0  # gradient norm clipping
 
     # lr scheduler
-    scheduler: str = "plateau"  # "cosine" or "plateau"
+    scheduler: str = "cosine"  # "cosine" or "plateau"
 
     # reproducibility
     seed: int = 1337
@@ -61,19 +61,23 @@ class Config:
         assert self.macro_batch_size % self.batch_size == 0
     
     @classmethod
-    def small(cls) -> "Config":
+    def tiny(cls) -> "Config":
         return cls(
-            n_emb=144,
+            n_emb=120,
             n_layers=6,
             n_heads=6,
-            T=48,
-            vocab_size=2048,
+            T=64,
+            vocab_size=1024,
+            use_tiktoken=False,
             dropout=0.3,
             batch_size=64,
             macro_batch_size=64,
             bias=False,
-            use_tiktoken=False,
-            max_steps= 1e12,#100000, # in terms of macrobatches
+            lr = 1e-4,
+            min_lr=2e-6,
+            scheduler="plateau",
+            split=0.9,
+            max_steps= 1e12, # in terms of macrobatches
             eval_interval=600, # in terms of macrobatches
             warmup_ratio=0.0,
             weight_decay=0.02,
@@ -81,7 +85,7 @@ class Config:
             grad_clipping=3.0
         )
 
-cfg = Config().small()
+cfg = Config().tiny()
 
 # Backwards-compatible module-level exports, DO NOT DELETE
 n_emb = cfg.n_emb

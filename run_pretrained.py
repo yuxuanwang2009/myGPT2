@@ -30,14 +30,6 @@ def generate_words(prompt: str, model: GPTLanguageModel, max_new_tokens: int = 3
     return words_gen_string
 
 def main():
-    # CLI options
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--prompt", "-p",
-        action="store_true",
-        help="Enter a prompt interactively."
-    )
-    args = parser.parse_args()
 
     model = Load_pretrained("checkpoint.pt")
     # model = GPTLanguageModel(cfg=config.cfg).to(config.device)
@@ -45,13 +37,11 @@ def main():
     
 
     while True:
-        if args.prompt:
-            user_prompt = input("Enter your prompt (or '<q>' to quit): ")
-            if user_prompt == "<q>":
-                break
-            prompt = stot(user_prompt).view(1, -1)
-        else:
-            prompt = stot("").view(1, -1)
+
+        user_prompt = input("Enter your prompt (or '<q>' to quit): ")
+        if user_prompt == "<q>":
+            break
+        prompt = stot(user_prompt).view(1, -1)
 
         prompt = prompt.to(config.device)
         # torch.manual_seed(42)
@@ -62,9 +52,6 @@ def main():
         with open("generated.txt", "w") as f:
             f.write(words_gen_string)
         print("\nSaved to generated.txt.")
-        
-        if not args.prompt:
-            break
 
 if __name__ == "__main__":
         main()
