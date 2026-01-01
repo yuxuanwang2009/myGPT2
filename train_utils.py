@@ -59,14 +59,17 @@ def _get_plateau_lr(curr_lr: float,
                     ) -> float:
     if len(loss_curve_val) <= 1:
         return curr_lr
-    window = min(10, len(loss_curve_val))
-    recent = loss_curve_val[-window:]
-    best_recent = min(recent)
-    # ratio > 1 means latest is worse than best_recent; 1.0 means tied
-    ratio = best_recent / loss_curve_val[-1]
-    if ratio < trigger_ratio and curr_lr * lr_reduction >= min_lr:
+    checkpoint = max(1, int(backtrack_ratio * len(loss_curve_val)))
+    curr = min(5, len(loss_curve_val))
+    loss_curve_val_curr = min(loss_curve_val[-curr:]) 
+    ratio = loss_curve_val_curr / loss_curve_val[checkpoint - 1]
+    if ratio < trigger_ratio:
+        return curr_lr
+    elif curr_lr * lr_reduction >= min_lr and ratio < giveup_ratio:
         return curr_lr * lr_reduction
-    return curr_lr
+    else:
+        # print(f"ratio = {ratio:.6g}, lr = {curr_lr:.6g}, stopping training.", flush=True)
+        return 0.0
 
 def _ddp_mean(value: float) -> float:
     if not (dist.is_available() and dist.is_initialized()):
