@@ -54,19 +54,61 @@ class HFDocStream(IterableDataset):
         self.epoch = int(epoch)
 
 
-class InMemoryDocStream(IterableDataset):
-    """Iterable over a cached list of docs (used for validation)."""
+class CachedHFDocStream(IterableDataset):
+    """Stream a fixed cached slice from HF, broadcast to all ranks, then shard locally."""
 
-    def __init__(self, docs):
+    def __init__(self, split: str, rank: int, world_size: int, limit: int):
         super().__init__()
-        self.docs = docs
+        self.split = split
+        self.rank = rank
+        self.world_size = world_size
+        self.limit = limit
+        self._cached_docs = None
+
+    def _ensure_cache(self):
+        if self._cached_docs is not None:
+            return
+        docs = []
+        distributed = dist.is_available() and dist.is_initialized()
+        if distributed:
+            if self.rank == 0:
+                ds = load_dataset(DATASET_PATH, name=DATASET_CONFIG, split=self.split, streaming=True)
+                for row in ds:
+                    text = row.get("text", "") if isinstance(row, dict) else ""
+                    if text:
+                        docs.append(text)
+                    if len(docs) >= self.limit:
+                        break
+            obj = [docs]
+            dist.broadcast_object_list(obj, src=0)
+            docs = obj[0]
+        else:
+            ds = load_dataset(DATASET_PATH, name=DATASET_CONFIG, split=self.split, streaming=True)
+            for row in ds:
+                text = row.get("text", "") if isinstance(row, dict) else ""
+                if text:
+                    docs.append(text)
+                if len(docs) >= self.limit:
+                    break
+        if dist.is_available() and dist.is_initialized() and docs:
+            total = len(docs) - (len(docs) % self.world_size)
+            docs = docs[:total] if total > 0 else docs
+        self._cached_docs = docs
 
     def __iter__(self) -> Iterable[str]:
-        for doc in self.docs:
+        self._ensure_cache()
+        total = len(self._cached_docs)
+        start = (total * self.rank) // self.world_size
+        end = (total * (self.rank + 1)) // self.world_size
+        for doc in self._cached_docs[start:end]:
             yield doc
 
     def __len__(self):
-        return len(self.docs)
+        self._ensure_cache()
+        total = len(self._cached_docs)
+        start = (total * self.rank) // self.world_size
+        end = (total * (self.rank + 1)) // self.world_size
+        return end - start
 
 # tokenizer encoding: from a string to a tensor of tokens
 def stot(s: str) -> torch.Tensor:
@@ -135,20 +177,9 @@ def Build_datasets(rank: int = 0, world_size: int = 1):
     """Create streaming train/val IterableDatasets. FineWeb-Edu only exposes 'train'."""
     train_limit = int(0.01 * 10_000_000) if config.device.type != "cuda" else None
     train_ds = HFDocStream("train", rank, world_size, limit=train_limit)
-    # Use an unsharded, fixed-size val slice for deterministic evaluation based on split ratio
+    # Validation: cached HF slice, sharded per rank
     val_limit = max(1, int((1.0 - config.split) * 100_000)) if config.device.type != "cuda" else max(1, int((1.0 - config.split) * 10_000_000))  # rough doc count scale for ~10B slice
-    if rank == 0:
-        val_docs = []
-        ds = load_dataset(DATASET_PATH, name=DATASET_CONFIG, split="train", streaming=True)
-        for idx, row in enumerate(ds):
-            text = row.get("text", "") if isinstance(row, dict) else ""
-            if text:
-                val_docs.append(text)
-            if len(val_docs) >= val_limit:
-                break
-        val_ds = InMemoryDocStream(val_docs)
-    else:
-        val_ds = InMemoryDocStream([])
+    val_ds = CachedHFDocStream("train", rank, world_size if dist.is_available() and dist.is_initialized() else 1, limit=val_limit)
     return train_ds, val_ds
 
 def Construct_data_loaders(data) -> DataLoader:
@@ -160,7 +191,7 @@ def Construct_data_loaders(data) -> DataLoader:
 
     # Wrap doc streams into block streams (train stays streaming, val may be materialized)
     bs_tr = BlockStream(ds_tr, materialize=False)
-    materialize_val = isinstance(ds_va, InMemoryDocStream)
+    materialize_val = isinstance(ds_va, CachedHFDocStream)
     bs_va = BlockStream(ds_va, materialize=materialize_val)
 
     distributed = dist.is_available() and dist.is_initialized()

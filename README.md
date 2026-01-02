@@ -1,113 +1,69 @@
 # myGPT2
 
-Minimal GPT‑2‑style language model with custom tokenizer and training pipeline for experimenting with transformer internals and training loops.
+GPT‑2–style language model with a streaming FineWeb‑Edu dataloader, optional custom tokenizer, and DDP‑ready training loop.
 
 ## Project layout
-
-- `model.py` — GPT model, attention blocks, and generation helpers; includes a class method to load GPT‑2 weights directly.
-- `train_utils.py` — optimizer construction, learning‑rate schedule, training loop, checkpointing.
-- `data_utils.py` — tokenization helpers, dataset, and DataLoaders; supports tiktoken or a trainable custom tokenizer.
-- `config.py` — model and training hyperparameters.
-- `run_train.py` — training entrypoint.
-- `run_pretrained.py` — load a checkpoint and sample text.
-- `import_data.py` — loads the corpus into a token tensor.
-- `Dataset/` — raw data (if present).
+- `model.py` — GPT backbone and generation helpers.
+- `train_utils.py` — optimizer, LR schedulers (cosine or plateau), training loop, checkpointing, plotting.
+- `data_utils.py` — tokenization helpers plus streaming HF dataset → fixed‑length block loaders.
+- `config.py` — hyperparameters/presets (default is tiny; switch to `Config()` for a GPT‑2–like run).
+- `train_tokenizer.py` — trains a regex BPE tokenizer on a slice of FineWeb‑Edu, writes `tokenizer.json`.
+- `run_train.py` — training entrypoint; supports single device or DDP via `torchrun`.
+- `run_pretrained.py` — load `checkpoint.pt` and generate text.
 
 ## Setup
-
-Install dependencies:
+```bash
+pip install torch datasets tiktoken numpy matplotlib
 ```
-pip install torch numpy matplotlib tiktoken
-```
+You need network access to stream `HuggingFaceFW/fineweb-edu` (config `sample-10BT`).
 
 ## Configuration
+- Edit `config.py`; flip `cfg = Config().tiny()` to `cfg = Config()` for a GPT‑2–style model (768‑d, 12 layers, 1024 ctx, vocab 50k).
+- Key knobs: `batch_size`, `macro_batch_size` (gradient accumulation target), `max_steps`, `eval_interval`, `lr` / `min_lr`, `scheduler` (`cosine` or `plateau`), `grad_clipping`.
+- Tokenizer: set `use_tiktoken = True` to use GPT‑2 BPE; set to `False` to load `tokenizer.json` from the custom regex tokenizer (must include `<|endoftext|>` as a single token).
 
-Edit `config.py`:
-
-- **Model**: `n_layers`, `n_heads`, `n_emb`, `T` (context length).
-- **Training**: `batch_size`, `macro_batch_size`, `max_steps`, `eval_interval`.
-- **Optimizer**: `lr`, `min_lr`, `warmup_ratio`, `weight_decay`, `grad_clipping`.
-- **Tokenizer**: `use_tiktoken` to switch between tiktoken and the regex tokenizer.
-
-`macro_batch_size` is the global batch size used for gradient accumulation. The training loop uses:
-```
-accum_steps = macro_batch_size // batch_size
-```
-
-## Data pipeline
-
-`data_utils.BlockPairDataset`:
-
-- Builds a list of start positions (`starts`) with stride `T`.
-- For each index `i`, selects `starts[i % len(starts)]` so training can repeat.
-- Takes `T+1` tokens and forms `(x, y)` pairs where `y` is `x` shifted by one.
-- Pads with newline tokens near the end of the stream.
-
-Train/val split happens in `Construct_data_loaders` using `config.split`. Validation uses the actual number of starts; training uses a fixed length derived from `config.max_steps`.
-
-## BPE tokenizer (custom)
-
-This repo includes a trainable regex‑based BPE tokenizer in `regex_tokenizer.py`.
-
-- Train a tokenizer:
-  ```
-  python train_tokenizer.py
-  ```
-  This writes `tokenizer.json`.
-- Use it in training by setting `use_tiktoken = False` in `config.py`. `data_utils.py` will load `tokenizer.json`.
-
-Implementation notes:
-- The tokenizer splits text with a GPT‑4‑style regex and learns merges up to `config.vocab_size`.
-- It supports `encode`, `decode`, and save/load for reproducibility.
+## Data pipeline (data_utils.py)
+- Source: streaming FineWeb‑Edu train split (`HuggingFaceFW/fineweb-edu`, `sample-10BT`).
+- `HFDocStream`: IterableDataset that shards by `world_size * num_workers`, shuffles with an epoch‑dependent seed, and supports an optional `limit` (used to shrink load on non‑CUDA).
+- `BlockStream`: wraps a doc stream, tokenizes each doc, appends `<|endoftext|>`, concatenates, and emits fixed `(x, y)` blocks of length `T` (pads final tail). Validation can be materialized in memory on rank 0.
+- `Build_datasets`: train is streaming; val caches a fixed doc slice on rank 0 only (size based on `config.split`; other ranks get empty val).
+- `Construct_data_loaders`: builds block loaders (batch_size = blocks). No sampler/shuffle at DataLoader level; per‑epoch shuffling is driven by `set_epoch` on the doc stream.
 
 ## Training
-
-Run training:
-```
+Single device:
+```bash
 python run_train.py
 ```
+DDP (example 8 GPUs):
+```bash
+torchrun --nproc_per_node=8 run_train.py
+```
+Notes:
+- Grad accumulation: `macro_batch_size // batch_size`; must be divisible by world size.
+- Mixed precision on CUDA (bfloat16) or MPS (float16). TF32 enabled on CUDA.
+- Cosine decay by default; plateau scheduler uses a recent‑window minimum to avoid stopping on spikes.
+- Validation runs on all ranks; losses are averaged across ranks.
+- Checkpoint saved to `checkpoint.pt`; loss curve to `loss_plot.png`.
 
-Multi-GPU with DDP:
-```
-torchrun --nproc_per_node=4 run_train.py
-```
-
-Resume from a checkpoint:
-```
+Resume:
+```bash
 python run_train.py --resume
 ```
 
-The training loop:
-
-- Uses mixed precision (`autocast`) on CUDA/MPS.
-- Accumulates gradients to simulate `macro_batch_size`.
-- Clips gradients if `grad_clipping > 0`.
-- Evaluates every `eval_interval * accum_steps` micro‑batches.
-- Saves `checkpoint.pt` at the end of training.
-
-## Learning‑rate schedule
-
-The LR schedule is cosine decay with optional warmup (see `_get_cos_lr` in `train_utils.py`).  
-`max_steps` is treated as the number of **macro steps** for the schedule.
+## Tokenizer (optional)
+Train the regex BPE tokenizer on a small FineWeb‑Edu slice:
+```bash
+python train_tokenizer.py
+```
+Then set `use_tiktoken = False` in `config.py` to use `tokenizer.json`.
 
 ## Sampling
-
-Generate text from a checkpoint:
-```
+```bash
 python run_pretrained.py
 ```
+Enter a prompt; output is written to `generated.txt`.
 
-Interactive prompt mode:
-```
-python run_pretrained.py --prompt
-```
-
-## Outputs
-
-- `checkpoint.pt` — saved model + optimizer state.
-- `loss_plot.png` — training/validation loss curves.
-- `generated.txt` — latest sampled output.
-
-## Notes
-
-- PyTorch's MPS support is questionable and suffers from nondeterministic behavior.
+## Caveats
+- Default preset in `config.py` is tiny; change to `Config()` for real runs.
+- Streaming has no fixed epoch length; training stops at `max_steps`.
+- Validation only on rank 0; adjust if you need multi‑rank eval.

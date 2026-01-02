@@ -66,9 +66,14 @@ def _get_plateau_lr(curr_lr: float,
     if ratio < trigger_ratio:
         return curr_lr
     elif curr_lr * lr_reduction >= min_lr and ratio < giveup_ratio:
+        print(f"plateau: n={len(loss_curve_val)}, ckpt={checkpoint}, "
+              f"curr_min={loss_curve_val_curr:.6f}, ref={loss_curve_val[checkpoint-1]:.6f}, "
+              f"ratio={ratio:.6g}, lr -> {curr_lr*lr_reduction:.6g}", flush=True)
         return curr_lr * lr_reduction
     else:
-        # print(f"ratio = {ratio:.6g}, lr = {curr_lr:.6g}, stopping training.", flush=True)
+        print(f"plateau: n={len(loss_curve_val)}, ckpt={checkpoint}, "
+              f"curr_min={loss_curve_val_curr:.6f}, ref={loss_curve_val[checkpoint-1]:.6f}, "
+              f"ratio={ratio:.6g}, giving up (lr=0).", flush=True)
         return 0.0
 
 def _ddp_mean(value: float) -> float:
@@ -109,6 +114,8 @@ def Train(
 
     loss_curve_tr = []
     loss_curve_val = []
+    lr_drops = [] if master_process else None  # macro_batch indices
+    lr_drop_segments = [] if master_process else None  # (drop_step, ref_x, ref_y, curr_x, curr_y)
     lr = optimizer.param_groups[0]['lr']
     max_lr = lr
     if master_process: # only time and plot in the master process
@@ -162,19 +169,20 @@ def Train(
                     lossi = []
                     if config.grad_clipping > 0.0:
                         norm = _ddp_mean(normi.mean().item())
-                    if master_process:
-                        m.eval()
-                        with torch.no_grad():
-                            lossi_val = []
-                            for idx_block, (X_val, Y_val) in enumerate(val_loader):
-                                X_val, Y_val = X_val.to(device, non_blocking=True), Y_val.to(device, non_blocking=True)    
-                                with autocast_ctx():
-                                    _, loss = m(X_val, targets=Y_val)  
-                                lossi_val.append(loss.item())
-                        loss_val = sum(lossi_val) / len(lossi_val)
-                        loss_curve_val.append(loss_val)
+                    # Validation on all ranks; aggregate via all_reduce
+                    m.eval()
+                    with torch.no_grad():
                         lossi_val = []
-                        m.train()
+                        for (X_val, Y_val) in val_loader:
+                            X_val, Y_val = X_val.to(device, non_blocking=True), Y_val.to(device, non_blocking=True)
+                            with autocast_ctx():
+                                _, loss = m(X_val, targets=Y_val)
+                            lossi_val.append(loss.item())
+                        loss_val = sum(lossi_val) / len(lossi_val) if len(lossi_val) > 0 else float("nan")
+                        loss_val = _ddp_mean(loss_val)
+                        if master_process and len(lossi_val) > 0:
+                            loss_curve_val.append(loss_val)
+                    m.train()
 
                     # --- end timing ---
                     maybe_sync()
@@ -194,6 +202,12 @@ def Train(
                             x_axis = np.arange(1, len(loss_curve_tr)+1) * eval_interval
                             ax.loglog(x_axis, loss_curve_tr, label=f"train, final = {loss_curve_tr[-1]:.4f}")
                             ax.loglog(x_axis, loss_curve_val, label=f"validation, final = {loss_curve_val[-1]:.4f}")
+                            if lr_drops:
+                                for drop_step in lr_drops:
+                                    ax.axvline(drop_step, linestyle="--", color="gray", alpha=0.6, linewidth=1)
+                            if lr_drop_segments:
+                                for _, ref_x, ref_y, curr_x, curr_y in lr_drop_segments:
+                                    ax.plot([ref_x, curr_x], [ref_y, curr_y], linestyle=":", color="gray", alpha=0.7, linewidth=1)
                             ax.set_xlabel(f"Training step")
                             ax.set_ylabel("Loss")
                             ax.legend()
@@ -201,26 +215,51 @@ def Train(
                             fig.savefig("loss_plot.png", dpi=300, bbox_inches="tight")
 
                     # Adjust learning rate
+                        prev_lr = lr
                         if config.scheduler == "cosine":
                             # cosine lr schedule
-                            lr = _get_cos_lr(macro_batch_count, config.max_steps, max_lr, config.min_lr, config.warmup_ratio)
+                            lr_new = _get_cos_lr(macro_batch_count, config.max_steps, max_lr, config.min_lr, config.warmup_ratio)
                         elif config.scheduler == "plateau":
                             # plateau lr schedule
                             if master_process:
-                                lr = _get_plateau_lr(curr_lr=lr,
-                                                    backtrack_ratio=0.8,
-                                                    lr_reduction=0.75,
-                                                    trigger_ratio=0.992,
-                                                    giveup_ratio=0.998,
-                                                    loss_curve_val=loss_curve_val,
-                                                    min_lr=config.min_lr
-                                                    )
-                            lr_tensor = torch.tensor([lr], device=device)
+                                backtrack_ratio = 0.7
+                                lr_reduction = 0.75
+                                trigger_ratio = 0.992
+                                giveup_ratio = 0.998
+                                lr_new = _get_plateau_lr(curr_lr=lr,
+                                                         backtrack_ratio=backtrack_ratio,
+                                                         lr_reduction=lr_reduction,
+                                                         trigger_ratio=trigger_ratio,
+                                                         giveup_ratio=giveup_ratio,
+                                                         loss_curve_val=loss_curve_val,
+                                                         min_lr=config.min_lr
+                                                         )
+                                if lr_new != lr and lr_drop_segments is not None:
+                                    n = len(loss_curve_val)
+                                    checkpoint = max(1, int(backtrack_ratio * n))
+                                    curr = min(5, n)
+                                    window_start = n - curr
+                                    subset = loss_curve_val[window_start:]
+                                    rel_idx = int(np.argmin(subset))
+                                    curr_idx = window_start + rel_idx
+                                    ref_idx = checkpoint - 1
+                                    ref_x = (ref_idx + 1) * eval_interval
+                                    curr_x = (curr_idx + 1) * eval_interval
+                                    ref_y = loss_curve_val[ref_idx]
+                                    curr_y = loss_curve_val[curr_idx]
+                                    lr_drop_segments.append((macro_batch_count, ref_x, ref_y, curr_x, curr_y))
+                            lr_tensor = torch.tensor([lr_new if master_process else 0.0], device=device)
                             if distributed:
                                 dist.broadcast(lr_tensor, src=0)
-                            lr = lr_tensor.item()
+                            lr_new = lr_tensor.item()
                         else: 
                             raise ValueError(f"Unknown scheduler {config.scheduler}.")
+                        if config.scheduler != "plateau":
+                            lr = lr_new
+                        else:
+                            lr = lr_new
+                        if master_process and lr_drops is not None and lr != prev_lr:
+                            lr_drops.append(macro_batch_count)
                         if lr == 0:
                             break
                         for g in optimizer.param_groups:
@@ -233,4 +272,6 @@ def Train(
         "model": to_save.state_dict(),
         "optimizer": optimizer.state_dict(),
         }, "checkpoint.pt")
-        print("Model checkpoint saved to checkpoint.pt.\n", flush=True)
+        np.save("loss_curve_tr.npy", np.array(loss_curve_tr, dtype=np.float32))
+        np.save("loss_curve_val.npy", np.array(loss_curve_val if loss_curve_val is not None else [], dtype=np.float32))
+        print("Model checkpoint saved to checkpoint.pt. Loss curves saved to loss_curve_tr.npy and loss_curve_val.npy.\n", flush=True)
