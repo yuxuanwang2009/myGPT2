@@ -22,7 +22,7 @@ class Config:
     # model
     n_emb: int = 768
     T: int = 1024  # context size
-    vocab_size: int = 50257  # or 50304 padded up to nearest multiple of 64 for efficiency
+    vocab_size: int = 50304  # or 50304 padded up to nearest multiple of 64 for efficiency
     n_layers: int = 12
     n_heads: int = 12
     bias: bool = True  # same value in GPT-2, but False is better
@@ -85,7 +85,7 @@ class Config:
             grad_clipping=3.0
         )
 
-cfg = Config().tiny()
+cfg = Config()
 
 # Backwards-compatible module-level exports, DO NOT DELETE
 n_emb = cfg.n_emb
