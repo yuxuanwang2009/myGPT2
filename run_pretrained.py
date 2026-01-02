@@ -2,6 +2,7 @@
 import argparse
 import torch
 import config
+from train_utils import Construct_optimizer
 from data_utils import ttos, stot
 from model import GPTLanguageModel
 
@@ -11,7 +12,7 @@ def Load_pretrained(checkpoint_path: str = "checkpoint.pt", training = False, de
     ckpt = torch.load(checkpoint_path, map_location=device)    
     model.load_state_dict(ckpt["model"])
     if training == True:
-        optimizer = torch.optim.AdamW(model.parameters(), 0)
+        optimizer = Construct_optimizer(model, config.lr, config.weight_decay, device)
         optimizer.load_state_dict(ckpt["optimizer"])
         model.train()
         return model, optimizer

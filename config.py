@@ -34,8 +34,7 @@ class Config:
     n_ffd_hidden: int = field(init=False)
 
     # data
-    split: float = 0.999
-    max_steps: int = 19073  # how many batches to train for
+    max_steps: int = 21100  # how many batches to train for
     eval_interval: int = 600
     batch_size: int = 64
     macro_batch_size: int = 512  # for gradient accumulation to simulate larger batch sizes
@@ -43,7 +42,7 @@ class Config:
     # optimizer
     lr: float = 6e-4
     min_lr: float = 0.1 * lr
-    warmup_ratio: float = 0.03
+    warmup_ratio: float = 0.04
     weight_decay: float = 0.1  # GPT-2 value
     grad_clipping: float = 1.0  # gradient norm clipping
 
@@ -76,7 +75,6 @@ class Config:
             lr = 6e-4,
             min_lr=2e-6,
             scheduler="plateau",
-            split=0.9,
             max_steps= 1e12, # in terms of macrobatches
             eval_interval=600, # in terms of macrobatches
             warmup_ratio=0.0,
@@ -100,7 +98,6 @@ label_smoothing = cfg.label_smoothing
 weight_tying = cfg.weight_tying
 device = cfg.device
 
-split = cfg.split
 max_steps = cfg.max_steps
 eval_interval = cfg.eval_interval
 batch_size = cfg.batch_size
