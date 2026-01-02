@@ -114,8 +114,6 @@ def Train(
 
     loss_curve_tr = []
     loss_curve_val = []
-    lr_drops = [] if master_process else None  # macro_batch indices
-    lr_drop_segments = [] if master_process else None  # (drop_step, ref_x, ref_y, curr_x, curr_y)
     lr = optimizer.param_groups[0]['lr']
     max_lr = lr
     if master_process: # only time and plot in the master process
@@ -202,12 +200,6 @@ def Train(
                             x_axis = np.arange(1, len(loss_curve_tr)+1) * eval_interval
                             ax.loglog(x_axis, loss_curve_tr, label=f"train, final = {loss_curve_tr[-1]:.4f}")
                             ax.loglog(x_axis, loss_curve_val, label=f"validation, final = {loss_curve_val[-1]:.4f}")
-                            if lr_drops:
-                                for drop_step in lr_drops:
-                                    ax.axvline(drop_step, linestyle="--", color="gray", alpha=0.6, linewidth=1)
-                            if lr_drop_segments:
-                                for _, ref_x, ref_y, curr_x, curr_y in lr_drop_segments:
-                                    ax.plot([ref_x, curr_x], [ref_y, curr_y], linestyle=":", color="gray", alpha=0.7, linewidth=1)
                             ax.set_xlabel(f"Training step")
                             ax.set_ylabel("Loss")
                             ax.legend()
@@ -237,17 +229,6 @@ def Train(
                                 if lr_new != lr and lr_drop_segments is not None:
                                     n = len(loss_curve_val)
                                     checkpoint = max(1, int(backtrack_ratio * n))
-                                    curr = min(5, n)
-                                    window_start = n - curr
-                                    subset = loss_curve_val[window_start:]
-                                    rel_idx = int(np.argmin(subset))
-                                    curr_idx = window_start + rel_idx
-                                    ref_idx = checkpoint - 1
-                                    ref_x = (ref_idx + 1) * eval_interval
-                                    curr_x = (curr_idx + 1) * eval_interval
-                                    ref_y = loss_curve_val[ref_idx]
-                                    curr_y = loss_curve_val[curr_idx]
-                                    lr_drop_segments.append((macro_batch_count, ref_x, ref_y, curr_x, curr_y))
                             lr_tensor = torch.tensor([lr_new if master_process else 0.0], device=device)
                             if distributed:
                                 dist.broadcast(lr_tensor, src=0)
@@ -258,8 +239,6 @@ def Train(
                             lr = lr_new
                         else:
                             lr = lr_new
-                        if master_process and lr_drops is not None and lr != prev_lr:
-                            lr_drops.append(macro_batch_count)
                         if lr == 0:
                             break
                         for g in optimizer.param_groups:

@@ -20,6 +20,8 @@ def set_reproducible(seed: int, rank: int) -> None:
     if torch.cuda.is_available():
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
+        # Ensure CuBLAS chooses a deterministic algorithm on CUDA >= 10.2
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     torch.use_deterministic_algorithms(True, warn_only=True) 
@@ -53,6 +55,7 @@ def main():
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
         torch.set_float32_matmul_precision("high")
+        # Keep flash/mem-efficient SDP enabled for performance, even in deterministic mode
     else:
         torch.set_float32_matmul_precision("highest")
 
@@ -69,6 +72,8 @@ def main():
         optimizer = Construct_optimizer(model, config.lr, config.weight_decay, device) # need to do this before the model becomes a DDP model
     else:
         model, optimizer = Load_pretrained("checkpoint.pt", training=True, device=device) 
+        for g in optimizer.param_groups:
+            g["lr"] = config.lr # set to config lr
         print("Model loaded from checkpoint. You will have to pick the proper lr schedule.\n")
     
     # 2. Wrap for DDP and compile (CUDA only); drop max-autotune to avoid Triton benchmark spam
