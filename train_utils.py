@@ -37,7 +37,7 @@ def Construct_optimizer(model, lr, weight_decay, device: torch.device):
 def _get_cos_lr(step: int, max_steps: int, max_lr: float, min_lr: float, warmup_ratio: float) -> float:
     max_steps = max(1, max_steps)
     warmup_steps = max(1, int(warmup_ratio * max_steps))
-    step = min(step, max_steps - 1)
+    step = min(step, max_steps)
 
     if step < warmup_steps:
         warmup_frac = (step + 1) / warmup_steps
@@ -99,7 +99,6 @@ def Train(
     rank = dist.get_rank() if distributed else 0
     master_process = rank == 0
     world_size = dist.get_world_size() if distributed else 1
-    
 
     if device.type == "cuda":
         autocast_ctx = lambda: torch.autocast(device_type="cuda", dtype=torch.bfloat16)
@@ -116,6 +115,10 @@ def Train(
     loss_curve_val = []
     lr = optimizer.param_groups[0]['lr']
     max_lr = lr
+    if config.scheduler == "cosine":
+        lr = _get_cos_lr(0, config.max_steps, max_lr, config.min_lr, config.warmup_ratio)
+        for g in optimizer.param_groups:
+            g["lr"] = lr
     if master_process: # only time and plot in the master process
         t0 = time.time()
         fig, ax = plt.subplots()
@@ -206,43 +209,38 @@ def Train(
                             # Save first, then show
                             fig.savefig("loss_plot.png", dpi=300, bbox_inches="tight")
 
-                    # Adjust learning rate
-                        prev_lr = lr
-                        if config.scheduler == "cosine":
-                            # cosine lr schedule
-                            lr_new = _get_cos_lr(macro_batch_count, config.max_steps, max_lr, config.min_lr, config.warmup_ratio)
-                        elif config.scheduler == "plateau":
-                            # plateau lr schedule
-                            if master_process:
-                                backtrack_ratio = 0.7
-                                lr_reduction = 0.75
-                                trigger_ratio = 0.992
-                                giveup_ratio = 0.998
-                                lr_new = _get_plateau_lr(curr_lr=lr,
-                                                         backtrack_ratio=backtrack_ratio,
-                                                         lr_reduction=lr_reduction,
-                                                         trigger_ratio=trigger_ratio,
-                                                         giveup_ratio=giveup_ratio,
-                                                         loss_curve_val=loss_curve_val,
-                                                         min_lr=config.min_lr
-                                                         )
-                                if lr_new != lr and lr_drop_segments is not None:
-                                    n = len(loss_curve_val)
-                                    checkpoint = max(1, int(backtrack_ratio * n))
-                            lr_tensor = torch.tensor([lr_new if master_process else 0.0], device=device)
-                            if distributed:
-                                dist.broadcast(lr_tensor, src=0)
-                            lr_new = lr_tensor.item()
-                        else: 
-                            raise ValueError(f"Unknown scheduler {config.scheduler}.")
-                        if config.scheduler != "plateau":
-                            lr = lr_new
+                lr_new = lr
+                if config.scheduler == "cosine":
+                    lr_new = _get_cos_lr(macro_batch_count, config.max_steps, max_lr, config.min_lr, config.warmup_ratio)
+                elif config.scheduler == "plateau":
+                    if macro_batch_count % eval_interval == 0 and len(loss_curve_val) > 0:
+                        if master_process:
+                            backtrack_ratio = 0.7
+                            lr_reduction = 0.75
+                            trigger_ratio = 0.992
+                            giveup_ratio = 0.998
+                            lr_new = _get_plateau_lr(curr_lr=lr,
+                                                     backtrack_ratio=backtrack_ratio,
+                                                     lr_reduction=lr_reduction,
+                                                     trigger_ratio=trigger_ratio,
+                                                     giveup_ratio=giveup_ratio,
+                                                     loss_curve_val=loss_curve_val,
+                                                     min_lr=config.min_lr
+                                                     )
                         else:
-                            lr = lr_new
-                        if lr == 0:
-                            break
-                        for g in optimizer.param_groups:
-                            g["lr"] = lr
+                            lr_new = 0.0
+                        lr_tensor = torch.tensor([lr_new], device=device)
+                        if distributed:
+                            dist.broadcast(lr_tensor, src=0)
+                        lr_new = lr_tensor.item()
+                else:
+                    raise ValueError(f"Unknown scheduler {config.scheduler}.")
+                if lr_new != lr:
+                    lr = lr_new
+                    for g in optimizer.param_groups:
+                        g["lr"] = lr
+                if lr == 0:
+                    break
         epoch_idx += 1
 
     if master_process:
