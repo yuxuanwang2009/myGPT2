@@ -280,7 +280,7 @@ def Build_datasets(rank: int = 0, world_size: int = 1):
     train_ds = HFDocStream("train", rank, world_size, limit=train_limit, data_files=_train_files_for_epoch)
 
     val_world = world_size if (dist.is_available() and dist.is_initialized()) else 1
-    val_limit = 100_000 if config.device.type != "cuda" else 10_000
+    val_limit = 1_200 if config.device.type != "cuda" else 12_000
     val_ds = CachedHFDocStream("train", rank, val_world, limit=val_limit, data_files=_val_files())
 
     return train_ds, val_ds

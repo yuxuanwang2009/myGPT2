@@ -34,7 +34,7 @@ class Config:
     n_ffd_hidden: int = field(init=False)
 
     # data
-    max_steps: int = 23000  # how many batches to train for
+    max_steps: int = 70000  # how many batches to train for
     eval_interval: int = 600
     batch_size: int = 64
     macro_batch_size: int = 512  # for gradient accumulation to simulate larger batch sizes
