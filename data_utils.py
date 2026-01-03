@@ -4,7 +4,6 @@ import torch
 import torch.distributed as dist
 from torch.utils.data import DataLoader, IterableDataset, get_worker_info
 import config
-import regex_tokenizer as rt
 import tiktoken
 from datasets import load_dataset
 from huggingface_hub import HfApi
@@ -12,17 +11,20 @@ from huggingface_hub import HfApi
 # -----------------------
 # Tokenizer
 # -----------------------
-if config.use_tiktoken == True:
+if config.use_tiktoken is True:
     tok = tiktoken.get_encoding("gpt2")
 else:
+    import regex_tokenizer as rt
     tok = rt.RegexTokenizer.load("tokenizer.json")
 
 # -----------------------
 # FineWeb-Edu (HF)
 # -----------------------
 DATASET_PATH = "HuggingFaceFW/fineweb-edu"
-DATASET_CONFIG = "sample-10BT"
-DATASET_SUBDIR = "sample/10BT"  # where the parquet shards live
+DATASET_CONFIG = "sample-100BT"
+DATASET_SUBDIR = "sample/100BT"  # where the parquet shards live
+TRAIN_EPOCH_GROUPS = 13
+TRAIN_FILE_RANGE = range(0, 8)  # 00000..00007
 
 
 def _list_parquets() -> list[str]:
@@ -56,6 +58,18 @@ def _list_parquets() -> list[str]:
     return parquets
 
 
+def _train_files_for_epoch(epoch: int) -> list[str]:
+    epoch_idx = int(epoch) % TRAIN_EPOCH_GROUPS
+    return [
+        f"{DATASET_SUBDIR}/{epoch_idx:03d}_{i:05d}.parquet"
+        for i in TRAIN_FILE_RANGE
+    ]
+
+
+def _val_files() -> list[str]:
+    return [f"{DATASET_SUBDIR}/013_00000.parquet"]
+
+
 # -----------------------
 # Doc streams
 # -----------------------
@@ -80,24 +94,30 @@ class HFDocStream(IterableDataset):
         self.data_files = data_files
 
     def __iter__(self) -> Iterable[str]:
+        data_files = self.data_files(self.epoch) if callable(self.data_files) else self.data_files
         ds = load_dataset(
             DATASET_PATH,
             name=DATASET_CONFIG,
             split=self.split,
             streaming=True,
-            data_files=self.data_files,
+            data_files=data_files,
         )
 
         worker = get_worker_info()
         worker_id = worker.id if worker is not None else 0
         num_workers = worker.num_workers if worker is not None else 1
 
-        # Correct sharding: rank * workers + worker_id (prevents duplication when num_workers>1)
-        total_shards = max(1, self.world_size * num_workers)
-        shard_idx = (self.rank * num_workers + worker_id) % total_shards
-
-        ds = ds.shard(num_shards=total_shards, index=shard_idx)
+        # Shuffle before sharding so the stride-based shard has a balanced mix of doc lengths
         ds = ds.shuffle(buffer_size=10_000, seed=self.base_seed + self.epoch)
+
+        total_shards = max(1, self.world_size * num_workers)
+        if getattr(ds, "num_shards", None) is not None and total_shards > ds.num_shards:
+            raise ValueError(
+                f"total_shards ({total_shards}) > dataset shards ({ds.num_shards}); "
+                "increase files per epoch or reduce world_size/num_workers."
+            )
+        shard_idx = (self.rank * num_workers + worker_id) % total_shards
+        ds = ds.shard(num_shards=total_shards, index=shard_idx)
 
         count = 0
         for row in ds:
@@ -257,19 +277,11 @@ def Build_datasets(rank: int = 0, world_size: int = 1):
     """Create streaming train/val IterableDatasets. FineWeb-Edu only exposes 'train'."""
     train_limit = int(0.01 * 10_000_000) if config.device.type != "cuda" else None
 
-    # Deterministic train/val split by parquet file list
-    parquets = _list_parquets()
-    if len(parquets) < 2:
-        raise ValueError(f"Need at least 2 parquet shards to split train/val, found {len(parquets)}")
-
-    train_files = parquets[:-1]
-    val_files = parquets[-1:]
-
-    train_ds = HFDocStream("train", rank, world_size, limit=train_limit, data_files=train_files)
+    train_ds = HFDocStream("train", rank, world_size, limit=train_limit, data_files=_train_files_for_epoch)
 
     val_world = world_size if (dist.is_available() and dist.is_initialized()) else 1
     val_limit = 100_000 if config.device.type != "cuda" else 10_000
-    val_ds = CachedHFDocStream("train", rank, val_world, limit=val_limit, data_files=val_files)
+    val_ds = CachedHFDocStream("train", rank, val_world, limit=val_limit, data_files=_val_files())
 
     return train_ds, val_ds
 
