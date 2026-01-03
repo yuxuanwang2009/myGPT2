@@ -15,7 +15,7 @@ GPT‑2–style language model with a streaming FineWeb‑Edu dataloader, option
 ```bash
 pip install torch datasets tiktoken numpy matplotlib
 ```
-You need network access to stream `HuggingFaceFW/fineweb-edu` (config `sample-10BT`).
+You need network access to stream `HuggingFaceFW/fineweb-edu` (config `sample-100BT`).
 
 ## Configuration
 - Edit `config.py`; flip `cfg = Config().tiny()` to `cfg = Config()` for a GPT‑2–style model (768‑d, 12 layers, 1024 ctx, vocab 50k).
@@ -26,8 +26,12 @@ You need network access to stream `HuggingFaceFW/fineweb-edu` (config `sample-10
 - Source: streaming FineWeb‑Edu train split (`HuggingFaceFW/fineweb-edu`, `sample-10BT`).
 - `HFDocStream`: IterableDataset that shards by `world_size * num_workers`, shuffles with an epoch‑dependent seed, and supports an optional `limit` (used to shrink load on non‑CUDA).
 - `BlockStream`: wraps a doc stream, tokenizes each doc, appends `<|endoftext|>`, concatenates, and emits fixed `(x, y)` blocks of length `T` (pads final tail). Validation can be materialized in memory on rank 0.
-- `Build_datasets`: train is streaming; val caches a fixed doc slice on rank 0 only (size based on `config.split`; other ranks get empty val).
+- `Build_datasets`: train is streaming; val caches a fixed doc slice on rank 0 then broadcasts and shards it so all ranks get the same-sized slice.
 - `Construct_data_loaders`: builds block loaders (batch_size = blocks). No sampler/shuffle at DataLoader level; per‑epoch shuffling is driven by `set_epoch` on the doc stream.
+
+## Recent run
+- Trained on ~35BT of FineWeb‑Edu (sample‑100BT); final validation loss: 2.935.
+- Loss curve: ![loss_plot](loss_plot.png)
 
 ## Training
 Single device:
@@ -62,8 +66,3 @@ Then set `use_tiktoken = False` in `config.py` to use `tokenizer.json`.
 python run_pretrained.py
 ```
 Enter a prompt; output is written to `generated.txt`.
-
-## Caveats
-- Default preset in `config.py` is tiny; change to `Config()` for real runs.
-- Streaming has no fixed epoch length; training stops at `max_steps`.
-- Validation only on rank 0; adjust if you need multi‑rank eval.
