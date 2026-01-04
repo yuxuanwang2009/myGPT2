@@ -32,6 +32,7 @@ You need network access to stream `HuggingFaceFW/fineweb-edu` (config `sample-10
 ## Recent run
 - Trained on ~35BT of FineWeb‑Edu (sample‑100BT); final validation loss: 2.935.
 - Loss curve: ![loss_plot](loss_plot.png)
+- For refernece, OpenAI's open-weight GPT-2 124M model have a validation loss of 3.282.
 
 ## Training
 Single device:
