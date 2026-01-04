@@ -249,6 +249,4 @@ def Train(
         "model": to_save.state_dict(),
         "optimizer": optimizer.state_dict(),
         }, "checkpoint.pt")
-        np.save("loss_curve_tr.npy", np.array(loss_curve_tr, dtype=np.float32))
-        np.save("loss_curve_val.npy", np.array(loss_curve_val if loss_curve_val is not None else [], dtype=np.float32))
-        print("Model checkpoint saved to checkpoint.pt. Loss curves saved to loss_curve_tr.npy and loss_curve_val.npy.\n", flush=True)
+        print("Model checkpoint saved to checkpoint.pt.\n", flush=True)
