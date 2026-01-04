@@ -80,7 +80,7 @@ class TransformerBlock(nn.Module):
         return out
     
 class GPTLanguageModel(nn.Module):
-    def __init__(self, cfg: config.Config = config.cfg):
+    def __init__(self, cfg: config.Config = config.cfg, verbose: bool = False):
         super().__init__()
         # Single entry point: pass a Config object (default: config.cfg)
         vocab_size = cfg.vocab_size
@@ -112,7 +112,8 @@ class GPTLanguageModel(nn.Module):
             if pn.endswith('c_proj.weight'):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * n_layers))
         
-        print(f"\nThe model has {sum(p.numel() for p in self.parameters())/1e6}M parameters.\n", flush=True)
+        if verbose:
+            print(f"\nThe model has {sum(p.numel() for p in self.parameters())/1e6}M parameters.\n", flush=True)
 
 
     def _init_weights(self, module): 

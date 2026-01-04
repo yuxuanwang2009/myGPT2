@@ -27,27 +27,27 @@ def generate_words(prompt: str, model: GPTLanguageModel, max_new_tokens: int = 3
             max_new_tokens=max_new_tokens,
             beta=beta,
         )
-    words_gen_string = ttos(generated.view(-1),for_output=True)
+    words_gen_string = ttos(generated.view(-1))
     return words_gen_string
 
 def main():
-
     model = Load_pretrained("checkpoint.pt")
     # model = GPTLanguageModel(cfg=config.cfg).to(config.device)
     # model = GPTLanguageModel.load_gpt2_from_hf().to(config.device) # for testing imported GPT-2, temporary
+
     
-
     while True:
-
         user_prompt = input("Enter your prompt (or '<q>' to quit): ")
         if user_prompt == "<q>":
             break
-        prompt = stot(user_prompt).view(1, -1)
+        if user_prompt == "":
+            user_prompt = "<|endoftext|>"
 
+        prompt = stot(user_prompt).view(1, -1)
         prompt = prompt.to(config.device)
         # torch.manual_seed(42)
         # torch.mps.manual_seed(42)
-        words_gen_string = generate_words(prompt, model, max_new_tokens=200, beta=1)
+        words_gen_string = generate_words(prompt, model, max_new_tokens=config.T, beta=1)
 
         print(words_gen_string)
         with open("generated.txt", "w") as f:

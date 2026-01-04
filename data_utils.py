@@ -330,11 +330,16 @@ def Construct_data_loaders(data) -> DataLoader:
 
     if rank == 0:
         print("Training set: streaming blocks (length unknown)", flush=True)
-        if hasattr(bs_va, "__len__"):
-            total_blocks = len(bs_va)
-            total_batches = (total_blocks + config.batch_size - 1) // config.batch_size
-            print(f"Validation set: {total_blocks} blocks, loader batches: {total_batches}", flush=True)
-        else:
-            print("Validation set: streaming blocks (length unknown)", flush=True)
 
-    return train_loader, val_loader, None
+    local_blocks = len(bs_va)
+    total_blocks = local_blocks
+    if distributed:
+        blk_tensor = torch.tensor([local_blocks], device=config.device if config.device.type == "cuda" else "cpu")
+        dist.reduce(blk_tensor, dst=0, op=dist.ReduceOp.SUM)
+        if rank == 0:
+            total_blocks = int(blk_tensor.item())
+    if rank == 0:
+        total_batches = (total_blocks + config.batch_size - 1) // config.batch_size
+        print(f"Validation set: {total_blocks} blocks, loader batches: {total_batches}", flush=True)
+
+    return train_loader, val_loader
