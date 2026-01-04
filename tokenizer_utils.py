@@ -21,7 +21,6 @@ def Build_linked_list(s: str, byte_shuffle: list[int] = None) -> list[Node]:
         DLL[i + 1].prev = DLL[i]
     return DLL
 
-from regex_tokenizer import RegexTokenizer
 import tiktoken
 enc = tiktoken.get_encoding("cl100k_base") # this is the GPT-4 tokenizer
 

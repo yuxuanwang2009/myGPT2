@@ -20,12 +20,12 @@ GPT4_SPLIT_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1
 
 
 class RegexTokenizer:
-    def __init__(self, merges=None, vocab=None, pattern=None, special_tokens=None):
+    def __init__(self, merges=None, vocab=None, pattern=None, special_token_to_id=None):
         self.pattern = GPT4_SPLIT_PATTERN if pattern is None else pattern
         self.compiled_pattern = re.compile(self.pattern)
         self.merges = {} if merges is None else merges
         self.vocab = {i: bytes([i]) for i in range(256)} if vocab is None else vocab
-        self.special_token_to_id = {} if special_tokens is None else special_tokens
+        self.special_token_to_id = {} if special_token_to_id is None else special_token_to_id
 
     def _merge(self, ids, pair, new_token, byte_shuffle=None):
         """
