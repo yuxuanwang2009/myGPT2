@@ -6,7 +6,6 @@ from torch.utils.data import DataLoader, IterableDataset, get_worker_info
 import config
 import tiktoken
 from datasets import load_dataset
-from huggingface_hub import HfApi
 
 # -----------------------
 # Tokenizer
@@ -30,37 +29,6 @@ TRAIN_EPOCH_GROUPS = 13
 TRAIN_FILE_RANGE = range(0, 8)  # 00000..00007
 
 
-def _list_parquets() -> list[str]:
-    """
-    Authoritative parquet listing from the Hub.
-    Returns full repo-relative paths like 'sample/10BT/000_00000.parquet'.
-
-    In DDP: rank 0 queries the Hub once, then broadcasts the list to all ranks.
-    """
-    distributed = dist.is_available() and dist.is_initialized()
-
-    parquets: list[str] = []
-    if (not distributed) or dist.get_rank() == 0:
-        api = HfApi()
-        files = api.list_repo_files(repo_id=DATASET_PATH, repo_type="dataset")
-        parquets = [f for f in files if f.startswith(DATASET_SUBDIR + "/") and f.endswith(".parquet")]
-        parquets.sort()
-        if not parquets:
-            raise FileNotFoundError(
-                f"No parquet files found under '{DATASET_SUBDIR}/' in dataset '{DATASET_PATH}'."
-            )
-
-    if distributed:
-        obj = [parquets]
-        dist.broadcast_object_list(obj, src=0)
-        parquets = obj[0]
-        if not parquets:
-            # If rank 0 failed it would have raised; this is a hard guard.
-            raise RuntimeError("Broadcasted parquet list is empty; rank 0 likely failed to list repo files.")
-
-    return parquets
-
-
 def _train_files_for_epoch(epoch: int) -> list[str]:
     epoch_idx = int(epoch) % TRAIN_EPOCH_GROUPS
     files = [
@@ -72,6 +40,7 @@ def _train_files_for_epoch(epoch: int) -> list[str]:
     rng.manual_seed(int(config.seed) + int(epoch))
     perm = torch.randperm(len(files), generator=rng).tolist()
     return [files[i] for i in perm]
+    # TODO: remove the layer of shuffling, return as is 
 
 
 def _val_files() -> list[str]:
@@ -116,7 +85,7 @@ class HFDocStream(IterableDataset):
         num_workers = worker.num_workers if worker is not None else 1
 
         # Shuffle before sharding so the stride-based shard has a balanced mix of doc lengths
-        ds = ds.shuffle(buffer_size=10_000, seed=self.base_seed + self.epoch)
+        ds = ds.shuffle(buffer_size=100_000, seed=self.base_seed + self.epoch)
 
         total_shards = max(1, self.world_size * num_workers)
         if getattr(ds, "num_shards", None) is not None and total_shards > ds.num_shards:
@@ -283,7 +252,7 @@ class BlockStream(IterableDataset):
 # -----------------------
 def Build_datasets(rank: int = 0, world_size: int = 1):
     """Create streaming train/val IterableDatasets. FineWeb-Edu only exposes 'train'."""
-    train_limit = int(0.01 * 10_000_000) if config.device.type != "cuda" else None
+    train_limit = 100_000 if config.device.type != "cuda" else None
 
     train_ds = HFDocStream("train", rank, world_size, limit=train_limit, data_files=_train_files_for_epoch)
 
@@ -313,7 +282,6 @@ def Construct_data_loaders(data) -> DataLoader:
     train_loader = DataLoader(
         bs_tr,
         batch_size=config.batch_size,
-        shuffle=False,
         # HF streaming can't be split across more workers than shards; keep it at 1 per process
         num_workers=1 if dist.is_initialized() else 1 if config.device.type == "mps" else 0,
         pin_memory=True if dist.is_available() and dist.is_initialized() else False,
@@ -323,7 +291,6 @@ def Construct_data_loaders(data) -> DataLoader:
     val_loader = DataLoader(
         bs_va,
         batch_size=config.batch_size,
-        shuffle=False,
         num_workers=0,
         pin_memory=False,
     )
