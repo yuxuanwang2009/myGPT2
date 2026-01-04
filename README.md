@@ -31,8 +31,9 @@ You need network access to stream `HuggingFaceFW/fineweb-edu` (config `sample-10
 
 ## Recent run
 - Trained on ~35BT of FineWeb‑Edu (sample‑100BT); final validation loss: 2.935.
-- Loss curve: ![loss_plot](loss_plot.png)
 - For refernece, OpenAI's open-weight GPT-2 124M model have a validation loss of 3.282.
+- Loss curve: ![loss_plot](loss_plot.png)
+
 
 ## Training
 Single device:
@@ -67,3 +68,4 @@ Then set `use_tiktoken = False` in `config.py` to use `tokenizer.json`.
 python run_pretrained.py
 ```
 Enter a prompt; output is written to `generated.txt`.
+To sample with OpenAI's GPT-2 124M weights, uncomment the line `model = GPTLanguageModel.load_gpt2_from_hf().to(config.device)`
