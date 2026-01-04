@@ -15,7 +15,10 @@ if config.use_tiktoken is True:
     tok = tiktoken.get_encoding("gpt2")
 else:
     import regex_tokenizer as rt
-    tok = rt.RegexTokenizer.load("tokenizer.json")
+    import tokenizer_utils as tu
+    # tok = rt.RegexTokenizer.load("tokenizer.json")
+    # use our custom tokenizer but GPT-2 merges/vocab, less than 2 times slower.
+    tok = rt.RegexTokenizer(tu.merges, tu.vocab)
 
 # -----------------------
 # FineWeb-Edu (HF)
@@ -60,10 +63,15 @@ def _list_parquets() -> list[str]:
 
 def _train_files_for_epoch(epoch: int) -> list[str]:
     epoch_idx = int(epoch) % TRAIN_EPOCH_GROUPS
-    return [
+    files = [
         f"{DATASET_SUBDIR}/{epoch_idx:03d}_{i:05d}.parquet"
         for i in TRAIN_FILE_RANGE
     ]
+    # Keep the same set per epoch but randomize order to avoid repeating patterns.
+    rng = torch.Generator()
+    rng.manual_seed(int(config.seed) + int(epoch))
+    perm = torch.randperm(len(files), generator=rng).tolist()
+    return [files[i] for i in perm]
 
 
 def _val_files() -> list[str]:
