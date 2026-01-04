@@ -49,7 +49,7 @@ def main():
         # torch.mps.manual_seed(42)
         words_gen_string = generate_words(prompt, model, max_new_tokens=config.T, beta=1)
 
-        print(words_gen_string)
+        print(f"\n{words_gen_string}")
         with open("generated.txt", "w") as f:
             f.write(words_gen_string)
         print("\nSaved to generated.txt.")

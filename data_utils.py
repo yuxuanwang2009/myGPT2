@@ -84,9 +84,6 @@ class HFDocStream(IterableDataset):
         worker_id = worker.id if worker is not None else 0
         num_workers = worker.num_workers if worker is not None else 1
 
-        # Shuffle before sharding so the stride-based shard has a balanced mix of doc lengths
-        ds = ds.shuffle(buffer_size=100_000, seed=self.base_seed + self.epoch)
-
         total_shards = max(1, self.world_size * num_workers)
         if getattr(ds, "num_shards", None) is not None and total_shards > ds.num_shards:
             raise ValueError(
@@ -95,6 +92,8 @@ class HFDocStream(IterableDataset):
             )
         shard_idx = (self.rank * num_workers + worker_id) % total_shards
         ds = ds.shard(num_shards=total_shards, index=shard_idx)
+        seed = self.base_seed + self.epoch * 1000 + self.rank * 10 + worker_id
+        ds = ds.shuffle(buffer_size=100_000, seed=seed)
 
         count = 0
         for row in ds:
