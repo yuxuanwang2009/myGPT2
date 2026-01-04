@@ -17,7 +17,10 @@ else:
     import tokenizer_utils as tu
     # tok = rt.RegexTokenizer.load("tokenizer.json")
     # use our custom tokenizer but GPT-2 merges/vocab, less than 2 times slower.
-    tok = rt.RegexTokenizer(tu.merges, tu.vocab, special_token_to_id={"<|endoftext|>":config.vocab_size})
+    tok = rt.RegexTokenizer(tu.merges,
+                             tu.vocab, 
+                             special_token_to_id={"<|endoftext|>":config.vocab_size}
+                            )
 
 # -----------------------
 # FineWeb-Edu (HF)
