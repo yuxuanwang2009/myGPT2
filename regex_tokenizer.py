@@ -20,14 +20,15 @@ GPT4_SPLIT_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1
 
 
 class RegexTokenizer:
-    def __init__(self, merges=None, vocab=None, pattern=None, special_token_to_id=None):
+    def __init__(self, merges=None, vocab=None, pattern=None, special_token_to_id=None, byte_shuffle=None):
         self.pattern = GPT4_SPLIT_PATTERN if pattern is None else pattern
         self.compiled_pattern = re.compile(self.pattern)
         self.merges = {} if merges is None else merges
         self.vocab = {i: bytes([i]) for i in range(256)} if vocab is None else vocab
         self.special_token_to_id = {} if special_token_to_id is None else special_token_to_id
+        self.byte_shuffle = byte_shuffle
 
-    def _merge(self, ids, pair, new_token, byte_shuffle=None):
+    def _merge(self, ids, pair, new_token):
         """
         Replace all non-overlapping occurrences of pair with new_token.
         Needed for training, but not efficient for encoding large texts.
@@ -98,7 +99,7 @@ class RegexTokenizer:
                 if id_val < 256:
                     ids[i] = byte_shuffle[id_val]
         for pair, new_token in self.merges.items():
-            ids = self._merge(ids, pair, new_token, byte_shuffle)
+            ids = self._merge(ids, pair, new_token)
         return ids
 
     def _encode_chunk_fast(self, chunk, byte_shuffle=None):
@@ -169,7 +170,7 @@ class RegexTokenizer:
             chunks.extend(self.compiled_pattern.findall(text[cursor:]))
         return [c for c in chunks if c]
 
-    def encode(self, text, byte_shuffle=None, allowed_special=None, fast=True):
+    def encode(self, text, allowed_special=None, fast=True):
         chunks = self._split_with_special(text, allowed_special)
         ids = []
         for chunk in chunks:
@@ -177,9 +178,9 @@ class RegexTokenizer:
                 ids.append(self.special_token_to_id[chunk])
                 continue
             if fast:
-                ids.extend(self._encode_chunk_fast(chunk, byte_shuffle))
+                ids.extend(self._encode_chunk_fast(chunk, self.byte_shuffle))
             else:
-                ids.extend(self._encode_chunk(chunk, byte_shuffle))
+                ids.extend(self._encode_chunk(chunk, self.byte_shuffle))
         return ids
 
     def decode(self, ids):

@@ -17,9 +17,10 @@ else:
     import tokenizer_utils as tu
     # tok = rt.RegexTokenizer.load("tokenizer.json")
     # use our custom tokenizer but GPT-2 merges/vocab, less than 2 times slower.
-    tok = rt.RegexTokenizer(tu.merges,
-                             tu.vocab, 
-                             special_token_to_id={"<|endoftext|>":config.vocab_size}
+    tok = rt.RegexTokenizer( merges = tu.merges,
+                             vocab = tu.vocab, 
+                             special_token_to_id = {"<|endoftext|>":50256},
+                             byte_shuffle = tu.byte_shuffle
                             )
 
 # -----------------------
@@ -187,7 +188,7 @@ def stot(s: str) -> torch.Tensor:
 
 def ttos(t: torch.Tensor, for_output: bool = False) -> str:
     out = tok.decode(t.tolist())
-    return out.replace("<|endoftext|>", "\n") if for_output else out
+    return out.replace("<|endoftext|>", "\n==========\n") if for_output else out
 
 
 # -----------------------
@@ -259,7 +260,7 @@ def Build_datasets(rank: int = 0, world_size: int = 1):
     train_ds = HFDocStream("train", rank, world_size, limit=train_limit, data_files=_train_files_for_epoch)
 
     val_world = world_size if (dist.is_available() and dist.is_initialized()) else 1
-    val_limit = 1_200 if config.device.type != "cuda" else 12_000
+    val_limit = 100 if config.device.type != "cuda" else 12_000
     val_ds = CachedHFDocStream("train", rank, val_world, limit=val_limit, data_files=_val_files())
 
     return train_ds, val_ds

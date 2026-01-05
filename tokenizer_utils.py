@@ -22,7 +22,7 @@ def Build_linked_list(s: str, byte_shuffle: list[int] = None) -> list[Node]:
     return DLL
 
 import tiktoken
-enc = tiktoken.get_encoding("cl100k_base") # this is the GPT-4 tokenizer
+enc = tiktoken.get_encoding("gpt2") # this is the GPT-2 tokenizer
 
 
 def bpe(mergeable_ranks, token, max_rank):
@@ -64,3 +64,5 @@ merges = recover_merges(enc._mergeable_ranks)
 vocab = {enc._mergeable_ranks[bytes([idx])]: bytes([idx]) for idx in range(256)}
 for pair, idx in merges.items():
     vocab[idx] = vocab[pair[0]] + vocab[pair[1]]
+
+byte_shuffle = {i:enc._mergeable_ranks[bytes([i])] for i in range(256)}
