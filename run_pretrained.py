@@ -27,11 +27,11 @@ def generate_words(prompt: str, model: GPTLanguageModel, max_new_tokens: int = 3
             max_new_tokens=max_new_tokens,
             beta=beta,
         )
-    words_gen_string = ttos(generated.view(-1))
+    words_gen_string = ttos(generated.view(-1), for_output=True)
     return words_gen_string
 
 def main():
-    model = Load_pretrained("checkpoint.pt")
+    model = Load_pretrained("myGPT2PB.pt")
     # model = GPTLanguageModel(cfg=config.cfg).to(config.device)
     # model = GPTLanguageModel.load_gpt2_from_hf().to(config.device) # for testing imported GPT-2, temporary
 
@@ -47,7 +47,7 @@ def main():
         prompt = prompt.to(config.device)
         # torch.manual_seed(42)
         # torch.mps.manual_seed(42)
-        words_gen_string = generate_words(prompt, model, max_new_tokens=config.T, beta=1)
+        words_gen_string = generate_words(prompt, model, max_new_tokens=100, beta=1)
 
         print(f"\n{words_gen_string}")
         with open("generated.txt", "w") as f:
