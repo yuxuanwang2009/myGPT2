@@ -184,6 +184,8 @@ class RegexTokenizer:
         return ids
 
     def decode(self, ids):
+        if self.special_token_to_id:
+            self.vocab.update({self.special_token_to_id[token]: token.encode("utf-8") for token in self.special_token_to_id})
         text_bytes = b"".join(self.vocab[i] for i in ids)
         return text_bytes.decode("utf-8", errors="replace")
 
