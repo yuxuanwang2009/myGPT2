@@ -1,6 +1,6 @@
 # myGPT2
 
-GPT‑2–style language model with a streaming FineWeb‑Edu dataloader, optional custom tokenizer, and DDP‑ready training loop.
+GPT‑2–style language model with a streaming FineWeb‑Edu dataloader, optional custom tokenizer, and DDP‑ready training loop. We recently trained a 124B model on ~35BT of FineWeb-Edu data, with performance reaching that of GPT-3's 124B model.
 
 ## Project layout
 - `model.py` — GPT backbone and generation helpers.
@@ -33,6 +33,8 @@ You need network access to stream `HuggingFaceFW/fineweb-edu` (config `sample-10
 - Trained on ~35BT of FineWeb‑Edu (sample‑100BT); final validation loss: 2.935.
 - For refernece, OpenAI's open-weight GPT-2 124M model have a validation loss of 3.282.
 - Loss curve: ![loss_plot](loss_plot.png)
+- After some investigation, the periodic ripples in the training loss is related to the document structure within each .parquet file of FineWeb-Edu. 
+- As I am streaming the data, it is challenaging to perform a global shuffle of the docs. But As I increase the shuffle buffer, the ripples are damped. The ripples do not seem to affect validation performance or eval score on HellaSwag
 
 
 ## Training
