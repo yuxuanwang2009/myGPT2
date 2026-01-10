@@ -11,6 +11,7 @@ from data_utils import Build_datasets, Construct_data_loaders
 from run_pretrained import Load_pretrained
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
+from pathlib import Path
 
 def set_reproducible(seed: int, rank: int) -> None:
     seed = int(seed) + int(rank)
@@ -73,7 +74,10 @@ def main():
         model = GPTLanguageModel(cfg=config.cfg, verbose=master_process).to(device) 
         optimizer = Construct_optimizer(model, config.lr, config.weight_decay, device) # need to do this before the model becomes a DDP model
     else:
-        model, optimizer = Load_pretrained("checkpoint.pt", training=True, device=device)
+        ckpt = Path("checkpoint.pt")
+        if not ckpt.is_file():
+            raise FileNotFoundError(f"Checkpoint not found: {ckpt}")
+        model, optimizer = Load_pretrained(str(ckpt), training=True, device=device)
         for g in optimizer.param_groups:
             g["lr"] = config.lr
         if master_process:

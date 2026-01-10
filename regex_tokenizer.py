@@ -215,5 +215,5 @@ class RegexTokenizer:
             merges=merges,
             vocab=vocab,
             pattern=state.get("pattern", GPT4_SPLIT_PATTERN),
-            special_tokens=special_token_to_id,
+            special_token_to_id=special_token_to_id,
         )

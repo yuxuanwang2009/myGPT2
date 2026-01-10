@@ -15,13 +15,29 @@ if config.use_tiktoken is True:
 else:
     import regex_tokenizer as rt
     import tokenizer_utils as tu
-    # tok = rt.RegexTokenizer.load("tokenizer.json")
-    # use our custom tokenizer but GPT-2 merges/vocab, less than 2 times slower.
-    tok = rt.RegexTokenizer( merges = tu.merges,
-                             vocab = tu.vocab, 
-                             special_token_to_id = {"<|endoftext|>":50256},
-                             byte_shuffle = tu.byte_shuffle
-                            )
+    if config.vocab_size < 50256:
+        tok = rt.RegexTokenizer.load("tokenizer.json")
+        # use our custom tokenizer but GPT-2 merges/vocab, less than 2 times slower.
+    else:
+        tok = rt.RegexTokenizer(merges = tu.merges,
+                                vocab = tu.vocab, 
+                                special_token_to_id = {"<|endoftext|>":50256},
+                                byte_shuffle = tu.byte_shuffle
+                               )
+
+
+# -----------------------
+# Tokenize helpers
+# -----------------------
+def stot(s: str) -> torch.Tensor:
+    ids = tok.encode(s, allowed_special={"<|endoftext|>"})
+    return torch.tensor(ids, dtype=torch.long)
+
+
+def ttos(t: torch.Tensor, for_output: bool = False) -> str:
+    out = tok.decode(t.tolist())
+    return out.replace("<|endoftext|>", "\n==========\n") if for_output else out
+
 
 # -----------------------
 # FineWeb-Edu (HF)
@@ -33,22 +49,15 @@ TRAIN_EPOCH_GROUPS = 13
 TRAIN_FILE_RANGE = range(0, 8)  # 00000..00007
 
 
-def _train_files_for_epoch(epoch: int) -> list[str]:
+def _train_files_for_epoch(epoch: int, rank: int) -> list[str]:
     epoch_idx = int(epoch) % TRAIN_EPOCH_GROUPS
-    files = [
-        f"{DATASET_SUBDIR}/{epoch_idx:03d}_{i:05d}.parquet"
-        for i in TRAIN_FILE_RANGE
-    ]
-    # Keep the same set per epoch but randomize order to avoid repeating patterns.
-    rng = torch.Generator()
-    rng.manual_seed(int(config.seed) + int(epoch))
-    perm = torch.randperm(len(files), generator=rng).tolist()
-    return [files[i] for i in perm]
-    # TODO: remove the layer of shuffling, return as is 
+    files = [f"{DATASET_SUBDIR}/{epoch_idx:03d}_{rank:05d}.parquet"]
+    return files
 
 
 def _val_files() -> list[str]:
-    return [f"{DATASET_SUBDIR}/013_00000.parquet"]
+    files = [f"{DATASET_SUBDIR}/013_00000.parquet"]
+    return files
 
 
 # -----------------------
@@ -75,7 +84,8 @@ class HFDocStream(IterableDataset):
         self.data_files = data_files
 
     def __iter__(self) -> Iterable[str]:
-        data_files = self.data_files(self.epoch) if callable(self.data_files) else self.data_files
+        # data_files is either a function or a list, but after this line it is a list of file names.
+        data_files = self.data_files(self.epoch, self.rank) if callable(self.data_files) else self.data_files
         ds = load_dataset(
             DATASET_PATH,
             name=DATASET_CONFIG,
@@ -83,19 +93,8 @@ class HFDocStream(IterableDataset):
             streaming=True,
             data_files=data_files,
         )
-
         worker = get_worker_info()
         worker_id = worker.id if worker is not None else 0
-        num_workers = worker.num_workers if worker is not None else 1
-
-        total_shards = max(1, self.world_size * num_workers)
-        if getattr(ds, "num_shards", None) is not None and total_shards > ds.num_shards:
-            raise ValueError(
-                f"total_shards ({total_shards}) > dataset shards ({ds.num_shards}); "
-                "increase files per epoch or reduce world_size/num_workers."
-            )
-        shard_idx = (self.rank * num_workers + worker_id) % total_shards
-        ds = ds.shard(num_shards=total_shards, index=shard_idx)
         seed = self.base_seed + self.epoch * 1000 + self.rank * 10 + worker_id
         ds = ds.shuffle(buffer_size=100_000, seed=seed)
 
@@ -179,19 +178,6 @@ class CachedHFDocStream(IterableDataset):
 
 
 # -----------------------
-# Tokenize helpers
-# -----------------------
-def stot(s: str) -> torch.Tensor:
-    ids = tok.encode(s, allowed_special={"<|endoftext|>"})
-    return torch.tensor(ids, dtype=torch.long)
-
-
-def ttos(t: torch.Tensor, for_output: bool = False) -> str:
-    out = tok.decode(t.tolist())
-    return out.replace("<|endoftext|>", "\n==========\n") if for_output else out
-
-
-# -----------------------
 # Block stream
 # -----------------------
 class BlockStream(IterableDataset):
@@ -223,12 +209,14 @@ class BlockStream(IterableDataset):
             ids = tok.encode(doc, allowed_special={"<|endoftext|>"})
             ids.append(eot_id)
             buf.extend(ids)
+            # keep the first T tokens and leave the remainder to combine with tokens in next doc
             while len(buf) >= T + 1:
                 block = buf[: T + 1]
                 buf = buf[T + 1 :]
                 block_t = torch.tensor(block, dtype=torch.long)
                 yield block_t[:-1], block_t[1:]
 
+        # pad the leftover tokens in buf
         if buf:
             if len(buf) < T + 1:
                 buf = buf + [pad_id] * (T + 1 - len(buf))
@@ -255,12 +243,12 @@ class BlockStream(IterableDataset):
 # -----------------------
 def Build_datasets(rank: int = 0, world_size: int = 1):
     """Create streaming train/val IterableDatasets. FineWeb-Edu only exposes 'train'."""
-    train_limit = 100_000 if config.device.type != "cuda" else None
+    train_limit = 1_000 if config.device.type != "cuda" else None
 
     train_ds = HFDocStream("train", rank, world_size, limit=train_limit, data_files=_train_files_for_epoch)
 
     val_world = world_size if (dist.is_available() and dist.is_initialized()) else 1
-    val_limit = 100 if config.device.type != "cuda" else 12_000
+    val_limit = 50 if config.device.type != "cuda" else 12_000
     val_ds = CachedHFDocStream("train", rank, val_world, limit=val_limit, data_files=_val_files())
 
     return train_ds, val_ds
@@ -288,8 +276,8 @@ def Construct_data_loaders(data) -> DataLoader:
         # HF streaming can't be split across more workers than shards; keep it at 1 per process
         num_workers=1 if dist.is_initialized() else 1 if config.device.type == "mps" else 0,
         pin_memory=True if dist.is_available() and dist.is_initialized() else False,
-        prefetch_factor=2 if dist.is_available() and dist.is_initialized() else None,
-        persistent_workers=True if dist.is_available() and dist.is_initialized() else False,
+        prefetch_factor=2 if dist.is_available() and dist.is_initialized() else 2 if config.device.type == "mps" else None,
+        persistent_workers=True if dist.is_available() and dist.is_initialized() else True if config.device.type == "mps" else False,
     )
     val_loader = DataLoader(
         bs_va,

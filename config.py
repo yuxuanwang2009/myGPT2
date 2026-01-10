@@ -53,7 +53,7 @@ class Config:
     seed: int = 1337
 
     # tokenizer
-    use_tiktoken: bool = True
+    use_tiktoken: bool = False
 
     def __post_init__(self) -> None:
         self.n_ffd_hidden = 4 * self.n_emb
@@ -68,16 +68,16 @@ class Config:
             T=64,
             vocab_size=3072,
             use_tiktoken=False,
-            dropout=0.3,
-            batch_size=256,
+            dropout=0.2,
+            batch_size=128,
             macro_batch_size=256,
             bias=False,
             lr = 6e-4,
             min_lr=2e-6,
-            scheduler="plateau",
-            max_steps= 1e12, # in terms of macrobatches
+            scheduler="cosine",
+            max_steps= 18000, # in terms of macrobatches
             eval_interval=600, # in terms of macrobatches
-            warmup_ratio=0.0,
+            warmup_ratio=0.04,
             weight_decay=0.02,
             weight_tying=False,
             grad_clipping=3.0

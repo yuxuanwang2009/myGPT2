@@ -156,7 +156,7 @@ class GPTLanguageModel(nn.Module):
             logits = logits[:, -1, :]
             probs = F.softmax(logits * beta, dim=-1)
             # use top-k logits (probs) to screen out junk tokens
-            top50_probs, top50_indices = torch.topk(probs, 50, dim = -1) 
+            top50_probs, top50_indices = torch.topk(probs, 50, dim=-1) 
             top50_index = torch.multinomial(top50_probs, num_samples=1)
             idx_next = torch.gather(top50_indices, -1, top50_index)
             idx = torch.cat([idx, idx_next], dim=1)

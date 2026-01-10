@@ -6,5 +6,5 @@ venv/
 checkpoint.pt
 Dataset
 *.pt
-generated.txt
-loss_plot.png
+Misc
+
