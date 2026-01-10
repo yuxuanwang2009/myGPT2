@@ -1,6 +1,6 @@
 # myGPT2
 
-GPT‑2–style language model with a streaming FineWeb‑Edu dataloader, optional custom tokenizer, and DDP‑ready training loop. We recently trained a 124B model on ~35BT of FineWeb-Edu data, with performance reaching that of GPT-3's 124B model.
+GPT‑2–style language model with a streaming FineWeb‑Edu dataloader, optional custom tokenizer, and DDP‑ready training loop. We recently trained a 124M model on ~35BT of FineWeb-Edu data, with performance reaching that of GPT-3's 124M model.
 
 ## Project layout
 - `model.py` — GPT backbone and generation helpers.
